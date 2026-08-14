@@ -1,0 +1,316 @@
+import streamlit as st
+from streamlit_image_coordinates import streamlit_image_coordinates
+import numpy as np
+import math
+from PIL import Image, ImageDraw
+
+# ==========================================
+# CONFIGURATION DE LA PAGE STREAMLIT
+# ==========================================
+st.set_page_config(page_title="Baphte Fortnite Droping", layout="wide")
+
+# ==========================================
+# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
+# ==========================================
+IMAGE_WIDTH_METERS = 2800.0 
+H_BUS = 820.0  
+Z_MAX = 300.0    
+
+V_BUS = 75.0       
+V_H_GLIDE1 = 35.0  
+V_Z_GLIDE1 = 12.0  
+V_Z_DIVE1 = 60.0   
+
+V_H_PLAN = 18.5
+V_Z_PLAN = 10.0
+
+V_H_DROP = 18.5    
+V_Z_DROP = 30.0    
+
+R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
+R_MAX_2 = V_H_PLAN / V_Z_PLAN
+
+# Couleurs pour le tracé final sur l'image
+COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
+COLOR_GLIDER = (0, 255, 0)            # Vert Lime
+COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
+COLOR_BUS = (0, 0, 255)               # Bleu
+
+# ==========================================
+# LE CERVEAU DE L'IA (MOTEUR OPTIMISÉ POUR LE WEB)
+# ==========================================
+class DropEngineIA:
+    def __init__(self, map_w, map_h, heightmap_array):
+        self.img_w = map_w
+        self.img_h = map_h
+        self.map_width_m = IMAGE_WIDTH_METERS
+        self.map_height_m = IMAGE_WIDTH_METERS * (self.img_h / self.img_w)
+        self.height_array = heightmap_array
+
+    def get_elevation(self, x, y):
+        px = int(round(x / self.map_width_m * self.img_w))
+        py = int(round(y / self.map_height_m * self.img_h))
+        px = np.clip(px, 0, self.img_w - 1)
+        py = np.clip(py, 0, self.img_h - 1)
+        return self.height_array[py, px]
+
+    def evaluate_path(self, t_bus, t_deploy, A, bus_vec, bus_length, S):
+        J = A + t_bus * bus_vec
+        time_bus = (t_bus * bus_length) / V_BUS
+        
+        dist_J_S = np.linalg.norm(S - J)
+        if dist_J_S == 0: return float('inf'), None
+        
+        dir_vec = (S - J) / dist_J_S
+        d_T = t_deploy * dist_J_S
+        T = J + d_T * dir_vec
+        
+        Z_T = self.get_elevation(T[0], T[1]) + 100.0
+        
+        D_A = max(0.0, d_T)
+        dZ_A = H_BUS - Z_T
+        if dZ_A <= 0: return float('inf'), None
+        
+        time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
+        
+        D_B = max(0.0, dist_J_S - d_T)
+        if t_deploy == 1.0:
+            dZ_B = 100.0 
+        else:
+            dZ_B = Z_T - self.get_elevation(S[0], S[1])
+            
+        if dZ_B <= 0: return float('inf'), None
+            
+        if (D_B / V_H_DROP) * V_Z_DROP >= dZ_B:
+            t_plan = max(0, (V_Z_DROP * D_B / V_H_DROP - dZ_B) / (V_Z_DROP - V_Z_PLAN))
+            time_B = D_B / V_H_PLAN
+            dist_plan = t_plan * V_H_PLAN
+            dist_drop = max(0, D_B - dist_plan)
+        else:
+            t_plan = 0
+            dist_plan = 0
+            dist_drop = D_B
+            time_B = dZ_B / V_Z_DROP
+            
+        total_time = time_bus + time_A + time_B
+        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A + time_B)
+
+    def run_optimization(self, p_start, p_end, p_spawn):
+        A = np.array([p_start[0] / self.img_w * self.map_width_m, p_start[1] / self.img_h * self.map_height_m])
+        B = np.array([p_end[0] / self.img_w * self.map_width_m, p_end[1] / self.img_h * self.map_height_m])
+        S = np.array([p_spawn[0] / self.img_w * self.map_width_m, p_spawn[1] / self.img_h * self.map_height_m])
+
+        bus_vec = B - A
+        bus_length = np.linalg.norm(bus_vec)
+        if bus_length == 0: return None
+
+        best_time = float('inf')
+        best_splits = None
+        paths_tested = 0
+
+        # OPTIMISATION VITESSE (Calcul ultra-rapide)
+        t_bus_samples = np.linspace(0, 1, 60) 
+        t_deploy_samples = np.linspace(0.01, 1, 30)
+        
+        best_t_bus = 0; best_t_deploy = 0
+
+        for t_bus in t_bus_samples:
+            for t_deploy in t_deploy_samples:
+                paths_tested += 1
+                time_total, splits = self.evaluate_path(t_bus, t_deploy, A, bus_vec, bus_length, S)
+                if time_total < best_time:
+                    best_time = time_total
+                    best_splits = splits
+                    best_t_bus = t_bus; best_t_deploy = t_deploy
+
+        if best_time != float('inf'):
+            # MICRO-OPTIMISATION IA
+            micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 20)
+            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 20)
+            for t_bus in micro_t_bus:
+                for t_deploy in micro_t_deploy:
+                    paths_tested += 1
+                    time_total, splits = self.evaluate_path(t_bus, t_deploy, A, bus_vec, bus_length, S)
+                    if time_total < best_time:
+                        best_time = time_total
+                        best_splits = splits
+
+        if best_time == float('inf'): return None
+
+        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_air = best_splits
+        
+        def m_to_px(pt_m):
+            return (pt_m[0] / self.map_width_m * self.img_w, pt_m[1] / self.map_height_m * self.img_h)
+            
+        P0_px = m_to_px(J)
+        P1_px = m_to_px(J + dir_vec * D_A)
+        P2_px = m_to_px(J + dir_vec * (D_A + dist_plan))
+        P3_px = m_to_px(J + dir_vec * (D_A + dist_plan + dist_drop))
+
+        return {
+            "time_total": best_time,
+            "time_bus": time_bus,
+            "time_air": time_air,
+            "paths_tested": paths_tested,
+            "P0": P0_px, "P1": P1_px, "P2": P2_px, "P3": P3_px
+        }
+
+# ==========================================
+# INITIALISATION DES VARIABLES
+# ==========================================
+if 'points' not in st.session_state: st.session_state.points = []
+if 'phase' not in st.session_state: st.session_state.phase = 1
+if 'zoom' not in st.session_state: st.session_state.zoom = 1.0
+if 'pan_x' not in st.session_state: st.session_state.pan_x = 50.0
+if 'pan_y' not in st.session_state: st.session_state.pan_y = 50.0
+if 'last_raw_click' not in st.session_state: st.session_state.last_raw_click = None
+
+def reset_all():
+    st.session_state.points = []
+    st.session_state.phase = 1
+    st.session_state.zoom = 1.0
+    st.session_state.pan_x = 50.0
+    st.session_state.pan_y = 50.0
+    st.session_state.last_raw_click = None
+    if 'result' in st.session_state:
+        del st.session_state.result
+
+st.title("🪂Baphte Fortnite Drop calculator")
+
+@st.cache_resource
+def load_images():
+    # MODIFICATION ICI : Les chemins sont devenus relatifs pour le serveur GitHub !
+    img_map_original = Image.open("Map Chapitre7 s3.png")
+    img_height = Image.open("heightmap.png").convert('L').resize(img_map_original.size)
+    height_arr = np.array(img_height) / 255.0 * Z_MAX
+    
+    ui_map = img_map_original.copy()
+    ui_map.thumbnail((1000, 1000)) 
+    
+    scale_x = img_map_original.width / ui_map.width
+    scale_y = img_map_original.height / ui_map.height
+    
+    return img_map_original, height_arr, ui_map, scale_x, scale_y
+
+try:
+    map_original, height_array, map_ui, scale_x, scale_y = load_images()
+except Exception as e:
+    st.error(f"Erreur de chargement. Vérifiez les fichiers sur GitHub ! Erreur : {e}")
+    st.stop()
+
+col1, col2 = st.columns([3, 1])
+
+# ==========================================
+# COLONNE 2 : INSTRUCTIONS ET ZOOM
+# ==========================================
+with col2:
+    st.header("Instructions")
+    if st.session_state.phase == 1:
+        st.info("📍 **Étape 1 : Le Bus**\nCliquez sur la carte pour placer le **Départ** puis l'**Arrivée**.")
+    elif st.session_state.phase == 2:
+        st.info("🎯 **Étape 2 : Le Spawn**\nCliquez sur la carte pour indiquer où vous voulez **atterrir**.")
+    elif st.session_state.phase == 4:
+        st.success("✅ **Calcul terminé !**\nVoici la trajectoire optimale calculée par l'IA.")
+
+    st.button("🔄 Tout recommencer / Dézoomer", on_click=reset_all, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("### 🔍 Zoom & Navigation")
+    st.slider("Niveau de Zoom", 1.0, 5.0, key="zoom", step=0.5)
+    
+    if st.session_state.zoom > 1.0:
+        st.slider("Position Horizontale (Gauche-Droite)", 0.0, 100.0, key="pan_x", format="%d%%")
+        st.slider("Position Verticale (Haut-Bas)", 0.0, 100.0, key="pan_y", format="%d%%")
+        
+    st.markdown("---")
+    st.markdown("### 🎨 Légende")
+    st.markdown("⚪ **Blanc** : Chute Libre Initiale (> 100m)")
+    st.markdown("🟢 **Vert** : Planeur")
+    st.markdown("🔴 **Rouge** : Chute Libre Finale (< 100m)")
+
+# ==========================================
+# GESTION DU CALCUL IA
+# ==========================================
+if st.session_state.phase == 3:
+    with col1:
+        with st.spinner('L\'IA calcule la trajectoire optimale...'):
+            engine = DropEngineIA(map_original.width, map_original.height, height_array)
+            p_start_real = (st.session_state.points[0][0] * scale_x, st.session_state.points[0][1] * scale_y)
+            p_end_real = (st.session_state.points[1][0] * scale_x, st.session_state.points[1][1] * scale_y)
+            p_spawn_real = (st.session_state.points[2][0] * scale_x, st.session_state.points[2][1] * scale_y)
+            
+            result = engine.run_optimization(p_start_real, p_end_real, p_spawn_real)
+            st.session_state.result = result
+            st.session_state.phase = 4 
+    st.rerun()
+
+# ==========================================
+# COLONNE 1 : DESSIN CARTE WEB
+# ==========================================
+img_draw = map_ui.copy()
+draw = ImageDraw.Draw(img_draw)
+
+if len(st.session_state.points) >= 1:
+    p = st.session_state.points[0]
+    draw.ellipse((p[0]-6, p[1]-6, p[0]+6, p[1]+6), fill=COLOR_BUS, outline="white", width=2)
+if len(st.session_state.points) >= 2:
+    p1 = st.session_state.points[0]
+    p2 = st.session_state.points[1]
+    draw.line([p1, p2], fill=COLOR_BUS, width=3)
+    draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
+
+if len(st.session_state.points) >= 3:
+    p3 = st.session_state.points[2]
+    draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
+
+if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
+    res = st.session_state.result
+    if res is None:
+        st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin).")
+    else:
+        def m_to_ui(pt): return (pt[0] / scale_x, pt[1] / scale_y)
+        P0, P1, P2, P3 = m_to_ui(res["P0"]), m_to_ui(res["P1"]), m_to_ui(res["P2"]), m_to_ui(res["P3"])
+        
+        draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
+        draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
+        draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
+        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=4)
+        
+        with col2:
+            st.markdown("---")
+            st.metric("Temps Total Optimal", f"{res['time_total']:.2f} s")
+            st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
+            st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
+            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
+
+# GESTION DU ROGNAGE (ZOOM WEB)
+w, h = map_ui.width, map_ui.height
+crop_w = w / st.session_state.zoom
+crop_h = h / st.session_state.zoom
+
+max_offset_x = w - crop_w
+max_offset_y = h - crop_h
+
+offset_x = (st.session_state.pan_x / 100.0) * max_offset_x
+offset_y = (st.session_state.pan_y / 100.0) * max_offset_y
+
+cropped_img = img_draw.crop((offset_x, offset_y, offset_x + crop_w, offset_y + crop_h))
+
+with col1:
+    value = streamlit_image_coordinates(cropped_img, key="map")
+    
+    if value is not None and st.session_state.phase < 3:
+        raw_click = (value["x"], value["y"])
+        if st.session_state.last_raw_click != raw_click:
+            st.session_state.last_raw_click = raw_click
+            true_x = raw_click[0] + offset_x
+            true_y = raw_click[1] + offset_y
+            click_coords = (true_x, true_y)
+            
+            st.session_state.points.append(click_coords)
+            
+            if len(st.session_state.points) == 2:
+                st.session_state.phase = 2
+            elif len(st.session_state.points) == 3:
+                st.session_state.phase = 3
+            st.rerun()
