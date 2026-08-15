@@ -195,7 +195,7 @@ st.title("🪂 Baphte Drop Calculator")
 @st.cache_resource
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
-    img_height = Image.open("heightmap.png").convert('L').resize(img_map_original.size)
+    img_height = Image.open("heightmap_Chap7_S3.png").convert('L').resize(img_map_original.size)
     height_arr = np.array(img_height) / 255.0 * Z_MAX
     
     ui_map = img_map_original.copy()
