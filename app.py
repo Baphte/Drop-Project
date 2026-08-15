@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Fortnite Drop Pro - IA", layout="wide")
+st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -190,7 +190,7 @@ def reset_all():
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂 Fortnite Drop Pro - IA")
+st.title("🪂 Baphte Drop Calculator")
 
 @st.cache_resource
 def load_images():
