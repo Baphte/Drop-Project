@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
+st.set_page_config(page_title="Fortnite Drop Pro - IA", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -27,9 +27,6 @@ V_Z_PLAN = 10.0
 V_H_DROP = 6.0    
 V_Z_DROP = 30.0    
 
-R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
-R_MAX_2 = V_H_PLAN / V_Z_PLAN
-
 # Couleurs pour le tracé final sur l'image
 COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
 COLOR_GLIDER = (0, 255, 0)            # Vert Lime
@@ -37,7 +34,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR OPTIMISÉ POUR LE WEB)
+# LE CERVEAU DE L'IA (MOTEUR BLINDÉ)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -74,9 +71,7 @@ class DropEngineIA:
         
         D_A = max(0.0, d_T)
         dZ_A = H_BUS - Z_T
-        
-        if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
-            return float('inf'), None
+        if dZ_A <= 0: return float('inf'), None
         
         time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
         
@@ -86,25 +81,34 @@ class DropEngineIA:
         else:
             dZ_B = Z_T - self.get_elevation(S[0], S[1])
             
-        if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
-            return float('inf'), None
+        if dZ_B <= 0: return float('inf'), None
             
-        if (D_B / V_H_DROP) * V_Z_DROP >= dZ_B:
-            t_plan = max(0, (V_Z_DROP * D_B / V_H_DROP - dZ_B) / (V_Z_DROP - V_Z_PLAN))
-            dist_plan = min(D_B, t_plan * V_H_PLAN) 
-            dist_drop = max(0.0, D_B - dist_plan)
-            
-            time_plan = t_plan
-            time_drop = (D_B / V_H_PLAN) - t_plan
-            time_B = time_plan + time_drop
-        else:
-            t_plan = 0
-            dist_plan = 0
-            dist_drop = D_B
-            
-            time_plan = 0
+        # --- NOUVELLE LOGIQUE INCASSABLE (Anti Temps Négatif) ---
+        t_horizontal_total = D_B / V_H_PLAN 
+        drop_min = t_horizontal_total * V_Z_PLAN  # Chute si on fait 100% planeur
+        drop_max = t_horizontal_total * V_Z_DROP  # Chute si on fait 100% chute libre
+        
+        if dZ_B <= drop_min:
+            # Trop plat : On force le planeur au maximum (pas de chute finale)
+            time_plan = t_horizontal_total
+            time_drop = 0.0
+            dist_plan = D_B
+            dist_drop = 0.0
+        elif dZ_B >= drop_max:
+            # Trop raide : On force la chute libre au maximum
+            time_plan = 0.0
             time_drop = dZ_B / V_Z_DROP
-            time_B = time_drop
+            dist_plan = 0.0
+            dist_drop = D_B
+        else:
+            # Le mix parfait (sans aucun nombre négatif)
+            time_plan = (drop_max - dZ_B) / (V_Z_DROP - V_Z_PLAN)
+            time_drop = t_horizontal_total - time_plan
+            dist_plan = time_plan * V_H_PLAN
+            dist_drop = D_B - dist_plan
+            
+        time_B = time_plan + time_drop
+        # --------------------------------------------------------
             
         total_time = time_bus + time_A + time_B
         return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop)
@@ -186,7 +190,7 @@ def reset_all():
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂 Fortnite Baphte Drop Calculator")
+st.title("🪂 Fortnite Drop Pro - IA")
 
 @st.cache_resource
 def load_images():
@@ -266,7 +270,7 @@ if len(st.session_state.points) >= 2:
     draw.line([p1, p2], fill=COLOR_BUS, width=3)
     draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
     
-    # Dessin de la flèche directionnelle
+    # Flèche directionnelle du bus
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
     dist = math.hypot(dx, dy)
@@ -284,7 +288,7 @@ if len(st.session_state.points) >= 2:
 
 if len(st.session_state.points) >= 3:
     p3 = to_ui(st.session_state.points[2])
-    # Ne dessiner le point vert d'attente QUE si le calcul n'est pas terminé
+    # Afficher le point vert uniquement pendant qu'on attend le résultat
     if st.session_state.phase < 4:
         draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
 
@@ -301,9 +305,9 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
         draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
         draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
-        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5) # Ligne rouge un peu plus épaisse
+        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5)
         
-        # Dessine le point d'arrivée (Spawn) en rouge pour s'accorder avec la fin de chute
+        # Point rouge final pour la cible d'atterrissage
         draw.ellipse((P3[0]-5, P3[1]-5, P3[0]+5, P3[1]+5), fill="red", outline="white", width=2)
         
         with col2:
@@ -312,12 +316,14 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
-            # NOUVEAU : Encadré détaillé des phases de vol
+            # L'encadré de détail avec les couleurs
             st.info(f"""
             **⏱️ Détail du Vol :**
             
             ⚪ Chute Initiale : **{res['time_A']:.1f} s**
+            
             🟢 Planeur : **{res['time_plan']:.1f} s**
+            
             🔴 Chute Finale : **{res['time_drop']:.1f} s**
             """)
             
