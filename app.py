@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Fortnite Droping", layout="wide")
+st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -17,14 +17,14 @@ H_BUS = 820.0
 Z_MAX = 300.0    
 
 V_BUS = 75.0       
-V_H_GLIDE1 = 35.0  
+V_H_GLIDE1 = 12,75  
 V_Z_GLIDE1 = 12.0  
 V_Z_DIVE1 = 60.0   
 
 V_H_PLAN = 18.5
-V_Z_PLAN = 10.0
+V_Z_PLAN = 12.0
 
-V_H_DROP = 18.5    
+V_H_DROP = 4.0    
 V_Z_DROP = 30.0    
 
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR OPTIMISÉ POUR LE WEB)
+# LE CERVEAU DE L'IA 
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -108,7 +108,7 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
-        # OPTIMISATION VITESSE (Calcul ultra-rapide)
+        # OPTIMISATION VITESSE
         t_bus_samples = np.linspace(0, 1, 60) 
         t_deploy_samples = np.linspace(0.01, 1, 30)
         
@@ -124,7 +124,6 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
-            # MICRO-OPTIMISATION IA
             micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 20)
             micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 20)
             for t_bus in micro_t_bus:
@@ -139,6 +138,7 @@ class DropEngineIA:
 
         J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_air = best_splits
         
+        # On renvoie les points sous forme de coordonées réelles
         def m_to_px(pt_m):
             return (pt_m[0] / self.map_width_m * self.img_w, pt_m[1] / self.map_height_m * self.img_h)
             
@@ -160,32 +160,26 @@ class DropEngineIA:
 # ==========================================
 if 'points' not in st.session_state: st.session_state.points = []
 if 'phase' not in st.session_state: st.session_state.phase = 1
-if 'zoom' not in st.session_state: st.session_state.zoom = 1.0
-if 'pan_x' not in st.session_state: st.session_state.pan_x = 50.0
-if 'pan_y' not in st.session_state: st.session_state.pan_y = 50.0
 if 'last_raw_click' not in st.session_state: st.session_state.last_raw_click = None
 
 def reset_all():
     st.session_state.points = []
     st.session_state.phase = 1
-    st.session_state.zoom = 1.0
-    st.session_state.pan_x = 50.0
-    st.session_state.pan_y = 50.0
-    st.session_state.last_raw_click = None
+    # CORRECTIF DU BUG FANTÔME : On ne remet PAS last_raw_click à None.
+    # Le système se souviendra du dernier clic et ne le replacera pas bêtement.
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂Baphte Fortnite Drop calculator")
+st.title("🪂 Baphte Fortnite Drop Calculator")
 
 @st.cache_resource
 def load_images():
-    # MODIFICATION ICI : Les chemins sont devenus relatifs pour le serveur GitHub !
     img_map_original = Image.open("Map Chapitre7 s3.png")
     img_height = Image.open("heightmap.png").convert('L').resize(img_map_original.size)
     height_arr = np.array(img_height) / 255.0 * Z_MAX
     
     ui_map = img_map_original.copy()
-    ui_map.thumbnail((1000, 1000)) 
+    ui_map.thumbnail((1000, 1000)) # Carte allégée pour des clics rapides
     
     scale_x = img_map_original.width / ui_map.width
     scale_y = img_map_original.height / ui_map.height
@@ -195,13 +189,13 @@ def load_images():
 try:
     map_original, height_array, map_ui, scale_x, scale_y = load_images()
 except Exception as e:
-    st.error(f"Erreur de chargement. Vérifiez les fichiers sur GitHub ! Erreur : {e}")
+    st.error(f"Erreur de chargement. Vérifiez les fichiers ! Erreur : {e}")
     st.stop()
 
 col1, col2 = st.columns([3, 1])
 
 # ==========================================
-# COLONNE 2 : INSTRUCTIONS ET ZOOM
+# COLONNE 2 : INSTRUCTIONS
 # ==========================================
 with col2:
     st.header("Instructions")
@@ -210,18 +204,10 @@ with col2:
     elif st.session_state.phase == 2:
         st.info("🎯 **Étape 2 : Le Spawn**\nCliquez sur la carte pour indiquer où vous voulez **atterrir**.")
     elif st.session_state.phase == 4:
-        st.success("✅ **Calcul terminé !**\nVoici la trajectoire optimale calculée par l'IA.")
+        st.success("✅ **Calcul terminé !**\nVoici la trajectoire optimale.")
 
-    st.button("🔄 Tout recommencer / Dézoomer", on_click=reset_all, use_container_width=True)
-
-    st.markdown("---")
-    st.markdown("### 🔍 Zoom & Navigation")
-    st.slider("Niveau de Zoom", 1.0, 5.0, key="zoom", step=0.5)
+    st.button("🔄 Tout recommencer", on_click=reset_all, use_container_width=True)
     
-    if st.session_state.zoom > 1.0:
-        st.slider("Position Horizontale (Gauche-Droite)", 0.0, 100.0, key="pan_x", format="%d%%")
-        st.slider("Position Verticale (Haut-Bas)", 0.0, 100.0, key="pan_y", format="%d%%")
-        
     st.markdown("---")
     st.markdown("### 🎨 Légende")
     st.markdown("⚪ **Blanc** : Chute Libre Initiale (> 100m)")
@@ -235,9 +221,11 @@ if st.session_state.phase == 3:
     with col1:
         with st.spinner('L\'IA calcule la trajectoire optimale...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
-            p_start_real = (st.session_state.points[0][0] * scale_x, st.session_state.points[0][1] * scale_y)
-            p_end_real = (st.session_state.points[1][0] * scale_x, st.session_state.points[1][1] * scale_y)
-            p_spawn_real = (st.session_state.points[2][0] * scale_x, st.session_state.points[2][1] * scale_y)
+            
+            # Les points sont stockés en taille réelle
+            p_start_real = st.session_state.points[0]
+            p_end_real = st.session_state.points[1]
+            p_spawn_real = st.session_state.points[2]
             
             result = engine.run_optimization(p_start_real, p_end_real, p_spawn_real)
             st.session_state.result = result
@@ -250,17 +238,21 @@ if st.session_state.phase == 3:
 img_draw = map_ui.copy()
 draw = ImageDraw.Draw(img_draw)
 
+# Fonction pour convertir les points de la vraie carte vers l'affichage web
+def to_ui(pt_real):
+    return (pt_real[0] / scale_x, pt_real[1] / scale_y)
+
 if len(st.session_state.points) >= 1:
-    p = st.session_state.points[0]
+    p = to_ui(st.session_state.points[0])
     draw.ellipse((p[0]-6, p[1]-6, p[0]+6, p[1]+6), fill=COLOR_BUS, outline="white", width=2)
 if len(st.session_state.points) >= 2:
-    p1 = st.session_state.points[0]
-    p2 = st.session_state.points[1]
+    p1 = to_ui(st.session_state.points[0])
+    p2 = to_ui(st.session_state.points[1])
     draw.line([p1, p2], fill=COLOR_BUS, width=3)
     draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
 
 if len(st.session_state.points) >= 3:
-    p3 = st.session_state.points[2]
+    p3 = to_ui(st.session_state.points[2])
     draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
 
 if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
@@ -268,8 +260,10 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
     if res is None:
         st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin).")
     else:
-        def m_to_ui(pt): return (pt[0] / scale_x, pt[1] / scale_y)
-        P0, P1, P2, P3 = m_to_ui(res["P0"]), m_to_ui(res["P1"]), m_to_ui(res["P2"]), m_to_ui(res["P3"])
+        P0 = to_ui(res["P0"])
+        P1 = to_ui(res["P1"])
+        P2 = to_ui(res["P2"])
+        P3 = to_ui(res["P3"])
         
         draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
         draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
@@ -283,31 +277,21 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
 
-# GESTION DU ROGNAGE (ZOOM WEB)
-w, h = map_ui.width, map_ui.height
-crop_w = w / st.session_state.zoom
-crop_h = h / st.session_state.zoom
-
-max_offset_x = w - crop_w
-max_offset_y = h - crop_h
-
-offset_x = (st.session_state.pan_x / 100.0) * max_offset_x
-offset_y = (st.session_state.pan_y / 100.0) * max_offset_y
-
-cropped_img = img_draw.crop((offset_x, offset_y, offset_x + crop_w, offset_y + crop_h))
-
 with col1:
-    value = streamlit_image_coordinates(cropped_img, key="map")
+    value = streamlit_image_coordinates(img_draw, key="map")
     
     if value is not None and st.session_state.phase < 3:
         raw_click = (value["x"], value["y"])
+        
+        # Anti Phantom-Click : On vérifie que c'est un vrai nouveau clic !
         if st.session_state.last_raw_click != raw_click:
             st.session_state.last_raw_click = raw_click
-            true_x = raw_click[0] + offset_x
-            true_y = raw_click[1] + offset_y
-            click_coords = (true_x, true_y)
             
-            st.session_state.points.append(click_coords)
+            # On convertit le clic UI (miniature) en coordonnées de la carte réelle
+            true_x = raw_click[0] * scale_x
+            true_y = raw_click[1] * scale_y
+            
+            st.session_state.points.append((true_x, true_y))
             
             if len(st.session_state.points) == 2:
                 st.session_state.phase = 2
