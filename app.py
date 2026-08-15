@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Fortnite Drop Pro - IA", layout="wide")
+st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -59,7 +59,6 @@ class DropEngineIA:
         time_bus = (t_bus * bus_length) / V_BUS
         
         dist_J_S = np.linalg.norm(S - J)
-        # Sécurité si on saute pile au dessus du point
         if dist_J_S == 0: 
             dZ_A = H_BUS - (self.get_elevation(S[0], S[1]) + 100.0)
             if dZ_A <= 0: return float('inf'), None
@@ -76,7 +75,6 @@ class DropEngineIA:
         D_A = max(0.0, d_T)
         dZ_A = H_BUS - Z_T
         
-        # MURS PHYSIQUES pour empêcher les lignes infinies et la triche de l'IA
         if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
             return float('inf'), None
         
@@ -93,8 +91,6 @@ class DropEngineIA:
             
         if (D_B / V_H_DROP) * V_Z_DROP >= dZ_B:
             t_plan = max(0, (V_Z_DROP * D_B / V_H_DROP - dZ_B) / (V_Z_DROP - V_Z_PLAN))
-            
-            # CORRECTION : La distance dessinée ne peut JAMAIS dépasser la distance restante (D_B)
             dist_plan = min(D_B, t_plan * V_H_PLAN) 
             dist_drop = max(0.0, D_B - dist_plan)
             time_B = D_B / V_H_PLAN
@@ -170,17 +166,16 @@ class DropEngineIA:
 # ==========================================
 if 'points' not in st.session_state: st.session_state.points = []
 if 'phase' not in st.session_state: st.session_state.phase = 1
-# La clé map_key gère le problème du clic fantôme
 if 'map_key' not in st.session_state: st.session_state.map_key = 0
 
 def reset_all():
     st.session_state.points = []
     st.session_state.phase = 1
-    st.session_state.map_key += 1 # Force le navigateur à créer une carte 100% vierge
+    st.session_state.map_key += 1
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂 Fortnite Drop Pro - IA")
+st.title("🪂 Baphte Fortnite Drop Calculator")
 
 @st.cache_resource
 def load_images():
@@ -253,11 +248,29 @@ def to_ui(pt_real):
 if len(st.session_state.points) >= 1:
     p = to_ui(st.session_state.points[0])
     draw.ellipse((p[0]-6, p[1]-6, p[0]+6, p[1]+6), fill=COLOR_BUS, outline="white", width=2)
+    
 if len(st.session_state.points) >= 2:
     p1 = to_ui(st.session_state.points[0])
     p2 = to_ui(st.session_state.points[1])
     draw.line([p1, p2], fill=COLOR_BUS, width=3)
     draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
+    
+    # AJOUT DE LA FLÈCHE AU MILIEU DE LA LIGNE DU BUS
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    dist = math.hypot(dx, dy)
+    if dist > 0:
+        mid_x = (p1[0] + p2[0]) / 2.0
+        mid_y = (p1[1] + p2[1]) / 2.0
+        ux = dx / dist
+        uy = dy / dist
+        
+        # Calcul des 3 pointes du triangle pour faire la flèche
+        tip = (mid_x + ux * 12, mid_y + uy * 12)
+        left = (mid_x - ux * 8 + (-uy) * 8, mid_y - uy * 8 + ux * 8)
+        right = (mid_x - ux * 8 - (-uy) * 8, mid_y - uy * 8 - ux * 8)
+        
+        draw.polygon([tip, left, right], fill=COLOR_BUS)
 
 if len(st.session_state.points) >= 3:
     p3 = to_ui(st.session_state.points[2])
@@ -283,18 +296,18 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             st.metric("Temps Total Optimal", f"{res['time_total']:.2f} s")
             st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
+            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
 
 with col1:
-    # L'image cliquable sans aucun zoom, avec la clé dynamique anti clic fantôme
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
     
     if value is not None and st.session_state.phase < 3:
-        # Conversion du clic sur la miniature en coordonnées de la carte d'origine
-        true_x = value["x"] * scale_x
-        true_y = value["y"] * scale_y
+        raw_click = (value["x"], value["y"])
+        
+        true_x = raw_click[0] * scale_x
+        true_y = raw_click[1] * scale_y
         click_coords = (true_x, true_y)
         
-        # Ajout du point si c'est le tout premier, ou s'il est différent du précédent
         if not st.session_state.points or click_coords != st.session_state.points[-1]:
             st.session_state.points.append(click_coords)
             
