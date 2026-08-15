@@ -30,14 +30,14 @@ V_Z_DROP = 30.0
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
 R_MAX_2 = V_H_PLAN / V_Z_PLAN
 
-# Couleurs pour le tracé final
+# Couleurs pour le tracé final sur l'image
 COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
 COLOR_GLIDER = (0, 255, 0)            # Vert Lime
 COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR OPTIMISÉ)
+# LE CERVEAU DE L'IA (MOTEUR OPTIMISÉ POUR LE WEB)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -64,7 +64,7 @@ class DropEngineIA:
             if dZ_A <= 0: return float('inf'), None
             time_A = dZ_A / V_Z_DIVE1
             time_B = 100.0 / V_Z_DROP
-            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A + time_B)
+            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B)
         
         dir_vec = (S - J) / dist_J_S
         d_T = t_deploy * dist_J_S
@@ -93,15 +93,21 @@ class DropEngineIA:
             t_plan = max(0, (V_Z_DROP * D_B / V_H_DROP - dZ_B) / (V_Z_DROP - V_Z_PLAN))
             dist_plan = min(D_B, t_plan * V_H_PLAN) 
             dist_drop = max(0.0, D_B - dist_plan)
-            time_B = D_B / V_H_PLAN
+            
+            time_plan = t_plan
+            time_drop = (D_B / V_H_PLAN) - t_plan
+            time_B = time_plan + time_drop
         else:
             t_plan = 0
             dist_plan = 0
             dist_drop = D_B
-            time_B = dZ_B / V_Z_DROP
+            
+            time_plan = 0
+            time_drop = dZ_B / V_Z_DROP
+            time_B = time_drop
             
         total_time = time_bus + time_A + time_B
-        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A + time_B)
+        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop)
 
     def run_optimization(self, p_start, p_end, p_spawn):
         A = np.array([p_start[0] / self.img_w * self.map_width_m, p_start[1] / self.img_h * self.map_height_m])
@@ -116,6 +122,7 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
+        # OPTIMISATION VITESSE
         t_bus_samples = np.linspace(0, 1, 60) 
         t_deploy_samples = np.linspace(0.01, 1, 30)
         
@@ -131,6 +138,7 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
+            # MICRO-OPTIMISATION IA
             micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 20)
             micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 20)
             for t_bus in micro_t_bus:
@@ -143,7 +151,7 @@ class DropEngineIA:
 
         if best_time == float('inf'): return None
 
-        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_air = best_splits
+        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop = best_splits
         
         def m_to_px(pt_m):
             return (pt_m[0] / self.map_width_m * self.img_w, pt_m[1] / self.map_height_m * self.img_h)
@@ -156,7 +164,10 @@ class DropEngineIA:
         return {
             "time_total": best_time,
             "time_bus": time_bus,
-            "time_air": time_air,
+            "time_air": time_A + time_plan + time_drop,
+            "time_A": time_A,
+            "time_plan": time_plan,
+            "time_drop": time_drop,
             "paths_tested": paths_tested,
             "P0": P0_px, "P1": P1_px, "P2": P2_px, "P3": P3_px
         }
@@ -175,7 +186,7 @@ def reset_all():
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂 Baphte Fortnite Drop Calculator")
+st.title("🪂 Fortnite Baphte Drop Calculator")
 
 @st.cache_resource
 def load_images():
@@ -200,7 +211,7 @@ except Exception as e:
 col1, col2 = st.columns([3, 1])
 
 # ==========================================
-# COLONNE 2 : INSTRUCTIONS
+# COLONNE 2 : INSTRUCTIONS ET METRICS
 # ==========================================
 with col2:
     st.header("Instructions")
@@ -255,7 +266,7 @@ if len(st.session_state.points) >= 2:
     draw.line([p1, p2], fill=COLOR_BUS, width=3)
     draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
     
-    # AJOUT DE LA FLÈCHE AU MILIEU DE LA LIGNE DU BUS
+    # Dessin de la flèche directionnelle
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
     dist = math.hypot(dx, dy)
@@ -265,7 +276,6 @@ if len(st.session_state.points) >= 2:
         ux = dx / dist
         uy = dy / dist
         
-        # Calcul des 3 pointes du triangle pour faire la flèche
         tip = (mid_x + ux * 12, mid_y + uy * 12)
         left = (mid_x - ux * 8 + (-uy) * 8, mid_y - uy * 8 + ux * 8)
         right = (mid_x - ux * 8 - (-uy) * 8, mid_y - uy * 8 - ux * 8)
@@ -274,7 +284,9 @@ if len(st.session_state.points) >= 2:
 
 if len(st.session_state.points) >= 3:
     p3 = to_ui(st.session_state.points[2])
-    draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
+    # Ne dessiner le point vert d'attente QUE si le calcul n'est pas terminé
+    if st.session_state.phase < 4:
+        draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
 
 if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
     res = st.session_state.result
@@ -289,13 +301,26 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
         draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
         draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
-        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=4)
+        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5) # Ligne rouge un peu plus épaisse
+        
+        # Dessine le point d'arrivée (Spawn) en rouge pour s'accorder avec la fin de chute
+        draw.ellipse((P3[0]-5, P3[1]-5, P3[0]+5, P3[1]+5), fill="red", outline="white", width=2)
         
         with col2:
             st.markdown("---")
             st.metric("Temps Total Optimal", f"{res['time_total']:.2f} s")
             st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
+            
+            # NOUVEAU : Encadré détaillé des phases de vol
+            st.info(f"""
+            **⏱️ Détail du Vol :**
+            
+            ⚪ Chute Initiale : **{res['time_A']:.1f} s**
+            🟢 Planeur : **{res['time_plan']:.1f} s**
+            🔴 Chute Finale : **{res['time_drop']:.1f} s**
+            """)
+            
             st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
 
 with col1:
