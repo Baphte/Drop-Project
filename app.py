@@ -1,5 +1,3 @@
-Baphte Fortnite Dropping
-🪂 Baphte Drop Calculator
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 import numpy as np
