@@ -1,3 +1,5 @@
+Baphte Fortnite Dropping
+🪂 Baphte Drop Calculator
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 import numpy as np
@@ -27,14 +29,17 @@ V_Z_PLAN = 10.0
 V_H_DROP = 6.0    
 V_Z_DROP = 30.0    
 
-# Couleurs pour le tracé final sur l'image
+R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
+R_MAX_2 = V_H_PLAN / V_Z_PLAN
+
+# Couleurs pour le tracé final
 COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
 COLOR_GLIDER = (0, 255, 0)            # Vert Lime
 COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR BLINDÉ)
+# LE CERVEAU DE L'IA (AVEC CALCUL DES ALTITUDES)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -57,21 +62,25 @@ class DropEngineIA:
         
         dist_J_S = np.linalg.norm(S - J)
         if dist_J_S == 0: 
-            dZ_A = H_BUS - (self.get_elevation(S[0], S[1]) + 100.0)
+            Z_open = self.get_elevation(S[0], S[1]) + 100.0
+            dZ_A = H_BUS - Z_open
             if dZ_A <= 0: return float('inf'), None
             time_A = dZ_A / V_Z_DIVE1
             time_B = 100.0 / V_Z_DROP
-            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B)
+            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open)
         
         dir_vec = (S - J) / dist_J_S
         d_T = t_deploy * dist_J_S
         T = J + d_T * dir_vec
         
+        # Altitude d'ouverture du planeur
         Z_T = self.get_elevation(T[0], T[1]) + 100.0
+        Z_open = Z_T
         
         D_A = max(0.0, d_T)
         dZ_A = H_BUS - Z_T
-        if dZ_A <= 0: return float('inf'), None
+        if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
+            return float('inf'), None
         
         time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
         
@@ -81,37 +90,37 @@ class DropEngineIA:
         else:
             dZ_B = Z_T - self.get_elevation(S[0], S[1])
             
-        if dZ_B <= 0: return float('inf'), None
+        if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
+            return float('inf'), None
             
-        # --- NOUVELLE LOGIQUE INCASSABLE (Anti Temps Négatif) ---
+        # Logique Incassable Anti-Négatif
         t_horizontal_total = D_B / V_H_PLAN 
-        drop_min = t_horizontal_total * V_Z_PLAN  # Chute si on fait 100% planeur
-        drop_max = t_horizontal_total * V_Z_DROP  # Chute si on fait 100% chute libre
+        drop_min = t_horizontal_total * V_Z_PLAN  
+        drop_max = t_horizontal_total * V_Z_DROP  
         
         if dZ_B <= drop_min:
-            # Trop plat : On force le planeur au maximum (pas de chute finale)
             time_plan = t_horizontal_total
             time_drop = 0.0
             dist_plan = D_B
             dist_drop = 0.0
         elif dZ_B >= drop_max:
-            # Trop raide : On force la chute libre au maximum
             time_plan = 0.0
             time_drop = dZ_B / V_Z_DROP
             dist_plan = 0.0
             dist_drop = D_B
         else:
-            # Le mix parfait (sans aucun nombre négatif)
             time_plan = (drop_max - dZ_B) / (V_Z_DROP - V_Z_PLAN)
             time_drop = t_horizontal_total - time_plan
             dist_plan = time_plan * V_H_PLAN
             dist_drop = D_B - dist_plan
             
         time_B = time_plan + time_drop
-        # --------------------------------------------------------
-            
         total_time = time_bus + time_A + time_B
-        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop)
+        
+        # Calcul de l'altitude au moment de la plongée finale
+        Z_close = Z_open - (time_plan * V_Z_PLAN)
+        
+        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
 
     def run_optimization(self, p_start, p_end, p_spawn):
         A = np.array([p_start[0] / self.img_w * self.map_width_m, p_start[1] / self.img_h * self.map_height_m])
@@ -142,7 +151,6 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
-            # MICRO-OPTIMISATION IA
             micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 20)
             micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 20)
             for t_bus in micro_t_bus:
@@ -155,7 +163,7 @@ class DropEngineIA:
 
         if best_time == float('inf'): return None
 
-        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop = best_splits
+        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close = best_splits
         
         def m_to_px(pt_m):
             return (pt_m[0] / self.map_width_m * self.img_w, pt_m[1] / self.map_height_m * self.img_h)
@@ -172,6 +180,8 @@ class DropEngineIA:
             "time_A": time_A,
             "time_plan": time_plan,
             "time_drop": time_drop,
+            "deploy_alt": Z_open,
+            "drop_alt": Z_close,
             "paths_tested": paths_tested,
             "P0": P0_px, "P1": P1_px, "P2": P2_px, "P3": P3_px
         }
@@ -195,7 +205,7 @@ st.title("🪂 Baphte Drop Calculator")
 @st.cache_resource
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
-    img_height = Image.open("heightmap_Chap7_S3.png").convert('L').resize(img_map_original.size)
+    img_height = Image.open("heightmap.png").convert('L').resize(img_map_original.size)
     height_arr = np.array(img_height) / 255.0 * Z_MAX
     
     ui_map = img_map_original.copy()
@@ -230,9 +240,9 @@ with col2:
     
     st.markdown("---")
     st.markdown("### 🎨 Légende")
-    st.markdown("⚪ **Blanc** : Chute Libre Initiale (> 100m)")
+    st.markdown("⚪ **Blanc** : Chute Libre Initiale")
     st.markdown("🟢 **Vert** : Planeur")
-    st.markdown("🔴 **Rouge** : Chute Libre Finale (< 100m)")
+    st.markdown("🔴 **Rouge** : Plongée Finale (Planeur pointé vers le bas)")
 
 # ==========================================
 # GESTION DU CALCUL IA
@@ -288,7 +298,6 @@ if len(st.session_state.points) >= 2:
 
 if len(st.session_state.points) >= 3:
     p3 = to_ui(st.session_state.points[2])
-    # Afficher le point vert uniquement pendant qu'on attend le résultat
     if st.session_state.phase < 4:
         draw.ellipse((p3[0]-5, p3[1]-5, p3[0]+5, p3[1]+5), fill="lime", outline="black", width=2)
 
@@ -302,12 +311,22 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         P2 = to_ui(res["P2"])
         P3 = to_ui(res["P3"])
         
-        draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
+        # 1. Tracé des lignes
         draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
         draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
         draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5)
         
-        # Point rouge final pour la cible d'atterrissage
+        # 2. Point de saut (Jaune)
+        draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
+        
+        # 3. Point d'ouverture du planeur (Petit Blanc)
+        draw.ellipse((P1[0]-4, P1[1]-4, P1[0]+4, P1[1]+4), fill="white", outline="black", width=2)
+        
+        # 4. Point de début de plongée (Petit Vert) - Ne s'affiche que si un vol plané a eu lieu
+        if res['time_plan'] > 0:
+            draw.ellipse((P2[0]-4, P2[1]-4, P2[0]+4, P2[1]+4), fill="lime", outline="black", width=2)
+            
+        # 5. Point d'atterrissage (Rouge)
         draw.ellipse((P3[0]-5, P3[1]-5, P3[0]+5, P3[1]+5), fill="red", outline="white", width=2)
         
         with col2:
@@ -316,15 +335,18 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
-            # L'encadré de détail avec les couleurs
+            # AFFICHAGE DÉTAILLÉ AVEC ALTITUDES
             st.info(f"""
-            **⏱️ Détail du Vol :**
+            **⏱️ Altitudes & Changements de Mode :**
             
-            ⚪ Chute Initiale : **{res['time_A']:.1f} s**
+            🚌 **Saut du Bus** (Altitude : 820 m)
+            ⬇️ *Chute Libre pendant {res['time_A']:.1f} s*
             
-            🟢 Planeur : **{res['time_plan']:.1f} s**
+            🪂 **Ouverture Planeur** (Altitude : **{res['deploy_alt']:.0f} m**)
+            ⬇️ *Planeur pendant {res['time_plan']:.1f} s*
             
-            🔴 Chute Finale : **{res['time_drop']:.1f} s**
+            🎯 **Plongée Finale** (Altitude : **{res['drop_alt']:.0f} m**)
+            ⬇️ *Plongée vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
             st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
