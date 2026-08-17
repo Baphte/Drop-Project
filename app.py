@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (AVEC CALCUL DES ALTITUDES)
+# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE EXACT)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -91,31 +91,31 @@ class DropEngineIA:
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
-        # Logique Incassable Anti-Négatif
-        t_horizontal_total = D_B / V_H_PLAN 
-        drop_min = t_horizontal_total * V_Z_PLAN  
-        drop_max = t_horizontal_total * V_Z_DROP  
+        # ========================================================
+        # NOUVELLE LOGIQUE INCASSABLE (Résolution Physique Exacte)
+        # ========================================================
+        det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         
-        if dZ_B <= drop_min:
-            time_plan = t_horizontal_total
-            time_drop = 0.0
-            dist_plan = D_B
-            dist_drop = 0.0
-        elif dZ_B >= drop_max:
+        t_plan_exact = (D_B * V_Z_DROP - dZ_B * V_H_DROP) / det
+        t_drop_exact = (dZ_B * V_H_PLAN - D_B * V_Z_PLAN) / det
+        
+        if t_plan_exact < 0:
             time_plan = 0.0
             time_drop = dZ_B / V_Z_DROP
             dist_plan = 0.0
             dist_drop = D_B
+        elif t_drop_exact < 0:
+            return float('inf'), None
         else:
-            time_plan = (drop_max - dZ_B) / (V_Z_DROP - V_Z_PLAN)
-            time_drop = t_horizontal_total - time_plan
+            time_plan = t_plan_exact
+            time_drop = t_drop_exact
             dist_plan = time_plan * V_H_PLAN
-            dist_drop = D_B - dist_plan
+            dist_drop = time_drop * V_H_DROP
             
         time_B = time_plan + time_drop
         total_time = time_bus + time_A + time_B
         
-        # Calcul de l'altitude au moment de la plongée finale
+        # Calcul de l'altitude au moment de la chute finale
         Z_close = Z_open - (time_plan * V_Z_PLAN)
         
         return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
@@ -133,7 +133,6 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
-        # OPTIMISATION VITESSE
         t_bus_samples = np.linspace(0, 1, 60) 
         t_deploy_samples = np.linspace(0.01, 1, 30)
         
@@ -203,7 +202,17 @@ st.title("🪂 Baphte Drop Calculator")
 @st.cache_resource
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
-    img_height = Image.open("heightmap_Chap7_S3.png").convert('L').resize(img_map_original.size)
+    
+    # CHARGEMENT ROBUSTE DE LA HEIGHTMAP (Corrige le bug de l'océan transparent)
+    img_height_raw = Image.open("heightmap_Chap7_S3.png")
+    if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
+        bg = Image.new('RGB', img_height_raw.size, (0, 0, 0)) # Remplissage noir
+        bg.paste(img_height_raw, (0, 0), img_height_raw.convert('RGBA'))
+        img_height = bg.convert('L')
+    else:
+        img_height = img_height_raw.convert('L')
+        
+    img_height = img_height.resize(img_map_original.size)
     height_arr = np.array(img_height) / 255.0 * Z_MAX
     
     ui_map = img_map_original.copy()
@@ -240,7 +249,7 @@ with col2:
     st.markdown("### 🎨 Légende")
     st.markdown("⚪ **Blanc** : Chute Libre Initiale")
     st.markdown("🟢 **Vert** : Planeur")
-    st.markdown("🔴 **Rouge** : Plongée Finale (Planeur pointé vers le bas)")
+    st.markdown("🔴 **Rouge** : Chute Finale (Planeur pointé vers le bas)")
 
 # ==========================================
 # GESTION DU CALCUL IA
@@ -278,7 +287,6 @@ if len(st.session_state.points) >= 2:
     draw.line([p1, p2], fill=COLOR_BUS, width=3)
     draw.ellipse((p2[0]-6, p2[1]-6, p2[0]+6, p2[1]+6), fill=COLOR_BUS, outline="white", width=2)
     
-    # Flèche directionnelle du bus
     dx = p2[0] - p1[0]
     dy = p2[1] - p1[1]
     dist = math.hypot(dx, dy)
@@ -309,22 +317,16 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         P2 = to_ui(res["P2"])
         P3 = to_ui(res["P3"])
         
-        # 1. Tracé des lignes
         draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
         draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
         draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5)
         
-        # 2. Point de saut (Jaune)
         draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
-        
-        # 3. Point d'ouverture du planeur (Petit Blanc)
         draw.ellipse((P1[0]-4, P1[1]-4, P1[0]+4, P1[1]+4), fill="white", outline="black", width=2)
         
-        # 4. Point de début de plongée (Petit Vert) - Ne s'affiche que si un vol plané a eu lieu
         if res['time_plan'] > 0:
             draw.ellipse((P2[0]-4, P2[1]-4, P2[0]+4, P2[1]+4), fill="lime", outline="black", width=2)
             
-        # 5. Point d'atterrissage (Rouge)
         draw.ellipse((P3[0]-5, P3[1]-5, P3[0]+5, P3[1]+5), fill="red", outline="white", width=2)
         
         with col2:
@@ -333,7 +335,6 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
             st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
-            # AFFICHAGE DÉTAILLÉ AVEC ALTITUDES
             st.info(f"""
             **⏱️ Altitudes & Changements de Mode :**
             
@@ -343,8 +344,8 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             🪂 **Ouverture Planeur** (Altitude : **{res['deploy_alt']:.0f} m**)
             ⬇️ *Planeur pendant {res['time_plan']:.1f} s*
             
-            🎯 **Plongée Finale** (Altitude : **{res['drop_alt']:.0f} m**)
-            ⬇️ *Plongée vers la cible pendant {res['time_drop']:.1f} s*
+            🎯 **Chute Finale** (Altitude : **{res['drop_alt']:.0f} m**)
+            ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
             st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
