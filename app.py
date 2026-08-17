@@ -92,7 +92,7 @@ class DropEngineIA:
             return float('inf'), None
             
         # ========================================================
-        # NOUVELLE LOGIQUE INCASSABLE (Résolution Physique Exacte)
+        # LOGIQUE INCASSABLE (Résolution Physique Exacte)
         # ========================================================
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         
@@ -202,18 +202,21 @@ st.title("🪂 Baphte Drop Calculator")
 @st.cache_resource
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
+    img_height_raw = Image.open("heightmap_Chap7_S3.png").convert('L').resize(img_map_original.size)
     
-    # CHARGEMENT ROBUSTE DE LA HEIGHTMAP (Corrige le bug de l'océan transparent)
-    img_height_raw = Image.open("heightmap_Chap7_S3.png")
-    if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
-        bg = Image.new('RGB', img_height_raw.size, (0, 0, 0)) # Remplissage noir
-        bg.paste(img_height_raw, (0, 0), img_height_raw.convert('RGBA'))
-        img_height = bg.convert('L')
+    # ==========================================
+    # AUTO-ÉTALONNAGE DE LA HEIGHTMAP
+    # ==========================================
+    # Assure que la zone la plus sombre est à 0m et la plus claire à Z_MAX (300m)
+    raw_arr = np.array(img_height_raw, dtype=np.float32)
+    min_val = np.min(raw_arr)
+    max_val = np.max(raw_arr)
+    
+    if max_val > min_val:
+        height_arr = (raw_arr - min_val) / (max_val - min_val) * Z_MAX
     else:
-        img_height = img_height_raw.convert('L')
-        
-    img_height = img_height.resize(img_map_original.size)
-    height_arr = np.array(img_height) / 255.0 * Z_MAX
+        height_arr = np.zeros_like(raw_arr)
+    # ==========================================
     
     ui_map = img_map_original.copy()
     ui_map.thumbnail((1000, 1000)) 
@@ -249,7 +252,7 @@ with col2:
     st.markdown("### 🎨 Légende")
     st.markdown("⚪ **Blanc** : Chute Libre Initiale")
     st.markdown("🟢 **Vert** : Planeur")
-    st.markdown("🔴 **Rouge** : Chute Finale (Planeur pointé vers le bas)")
+    st.markdown("🔴 **Rouge** : Chute Finale")
 
 # ==========================================
 # GESTION DU CALCUL IA
