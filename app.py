@@ -25,7 +25,7 @@ V_H_PLAN = 18.5
 V_Z_PLAN = 10.0
 
 V_H_DROP = 6.0    
-V_Z_DROP = 31.5    
+V_Z_DROP = 30.0    
 
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
 R_MAX_2 = V_H_PLAN / V_Z_PLAN
@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE EXACT)
+# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE + SCANNER RELIEF)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -113,9 +113,39 @@ class DropEngineIA:
             dist_drop = time_drop * V_H_DROP
             
         time_B = time_plan + time_drop
-        total_time = time_bus + time_A + time_B
         
-        # Calcul de l'altitude au moment de la chute finale
+        # ========================================================
+        # 🏔️ SCANNER DE RELIEF (ANTI-CRASH)
+        # ========================================================
+        # 1. Vérification Phase Planeur (On scanne entre T et S)
+        for step in [0.25, 0.50, 0.75]:
+            P_check = T + step * (S - T)
+            Z_ground = self.get_elevation(P_check[0], P_check[1])
+            dist_check = step * D_B
+            
+            # Calcul de l'altitude du joueur à cet endroit précis
+            if dist_check <= dist_plan:
+                Z_flight = Z_open - (dist_check / V_H_PLAN) * V_Z_PLAN
+            else:
+                dist_drop_check = dist_check - dist_plan
+                Z_flight = Z_open - (time_plan * V_Z_PLAN) - (dist_drop_check / V_H_DROP) * V_Z_DROP
+                
+            # Si le joueur est sous terre, ce chemin est impossible
+            if Z_flight <= Z_ground:
+                return float('inf'), None
+
+        # 2. Vérification Phase Chute Libre (On scanne entre J et T)
+        for step in [0.33, 0.66]:
+            P_check = J + step * (T - J)
+            Z_ground = self.get_elevation(P_check[0], P_check[1])
+            Z_flight = H_BUS - step * (H_BUS - Z_open)
+            
+            # Si le joueur frôle un sommet à moins de 100m, le planeur s'ouvre de force ! Chemin invalide.
+            if Z_flight <= Z_ground + 100.0:
+                return float('inf'), None
+        # ========================================================
+        
+        total_time = time_bus + time_A + time_B
         Z_close = Z_open - (time_plan * V_Z_PLAN)
         
         return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
@@ -202,13 +232,20 @@ st.title("🪂 Baphte Drop Calculator")
 @st.cache_resource
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
-    img_height_raw = Image.open("heightmap_Chap7_S3.png").convert('L').resize(img_map_original.size)
     
     # ==========================================
-    # AUTO-ÉTALONNAGE DE LA HEIGHTMAP
+    # AUTO-ÉTALONNAGE ROBUSTE DE LA HEIGHTMAP
     # ==========================================
-    # Assure que la zone la plus sombre est à 0m et la plus claire à Z_MAX (300m)
-    raw_arr = np.array(img_height_raw, dtype=np.float32)
+    img_height_raw = Image.open("heightmap_Chap7_S3.png")
+    if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
+        bg = Image.new('RGB', img_height_raw.size, (0, 0, 0))
+        bg.paste(img_height_raw, (0, 0), img_height_raw.convert('RGBA'))
+        img_height = bg.convert('L')
+    else:
+        img_height = img_height_raw.convert('L')
+        
+    img_height = img_height.resize(img_map_original.size)
+    raw_arr = np.array(img_height, dtype=np.float32)
     min_val = np.min(raw_arr)
     max_val = np.max(raw_arr)
     
@@ -259,7 +296,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la trajectoire optimale...'):
+        with st.spinner('L\'IA analyse le relief et calcule la trajectoire optimale...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -313,7 +350,7 @@ if len(st.session_state.points) >= 3:
 if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
     res = st.session_state.result
     if res is None:
-        st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin).")
+        st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin ou bloqué par une montagne).")
     else:
         P0 = to_ui(res["P0"])
         P1 = to_ui(res["P1"])
@@ -351,7 +388,7 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
+            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
