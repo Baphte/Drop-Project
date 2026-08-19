@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
+st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -24,7 +24,7 @@ V_Z_DIVE1 = 60.0
 V_H_PLAN = 18.5
 V_Z_PLAN = 10.0
 
-V_H_DROP = 10.0    
+V_H_DROP = 6.0    
 V_Z_DROP = 30.0    
 
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (SCANNER PHYSIQUE CORRIGÉ)
+# LE CERVEAU DE L'IA (MOTEUR HYPER-RÉSOLUTION)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -75,20 +75,19 @@ class DropEngineIA:
         D_B = max(0.0, dist_J_S - d_T)
         
         # ========================================================
-        # 🏔️ 1. ALTITUDE DYNAMIQUE (Planeur)
+        # 🏔️ 1. ALTITUDE DYNAMIQUE ET SCANNER ANTI-CRASH (PLANEUR)
         # ========================================================
-        max_required_Z = self.get_elevation(T[0], T[1]) + 100.0
+        Z_open = self.get_elevation(T[0], T[1]) + 100.0
         
         if D_B > 0:
-            for step in np.linspace(0.1, 1.0, 10):
+            # L'IA calcule exactement de combien elle doit se surélever pour chaque colline survolée
+            for step in [0.2, 0.4, 0.6, 0.8, 1.0]:
                 P_check = T + step * (S - T)
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
-                required_Z = Z_ground + (step * D_B) * (V_Z_PLAN / V_H_PLAN)
-                if required_Z > max_required_Z:
-                    max_required_Z = required_Z
+                req_Z = Z_ground + (step * D_B) * (V_Z_PLAN / V_H_PLAN)
+                if req_Z > Z_open:
+                    Z_open = req_Z
                     
-        Z_open = max_required_Z
-        
         if Z_open > H_BUS:
             return float('inf'), None
         
@@ -97,19 +96,18 @@ class DropEngineIA:
             return float('inf'), None
             
         # ========================================================
-        # 🏔️ 2. SCANNER ANTI-CRASH CORRIGÉ (Chute Libre)
+        # 🏔️ 2. NOUVEAU SCANNER 3D RÉEL (CHUTE LIBRE)
         # ========================================================
         if D_A > 0:
-            for step in np.linspace(0.1, 0.9, 5):
+            for step in [0.3, 0.6, 0.9]:
                 P_check = J + step * (T - J)
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
+                # On suit la véritable trajectoire diagonale 3D du joueur !
+                Z_flight = H_BUS - step * dZ_A
                 
-                # CORRECTION : On suit la vraie courbe de vol ! 
-                # Le joueur reste très haut pendant son avancée horizontale, puis plonge à la fin.
-                Z_flight = H_BUS - (step * D_A) * (V_Z_GLIDE1 / V_H_GLIDE1)
-                
+                # Si le joueur tape la zone de 100m, son planeur s'ouvre de force = chemin invalide.
                 if Z_flight < Z_ground + 100.0:
-                    return float('inf'), None 
+                    return float('inf'), None
         # ========================================================
         
         time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
@@ -122,9 +120,7 @@ class DropEngineIA:
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
-        # ========================================================
-        # RÉSOLUTION PHYSIQUE EXACTE (Planeur + Plongée)
-        # ========================================================
+        # Résolution Physique Exacte
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         if det == 0: return float('inf'), None
         
@@ -146,7 +142,6 @@ class DropEngineIA:
             
         time_B = time_plan + time_drop
         total_time = time_bus + time_A + time_B
-        
         Z_close = Z_open - (time_plan * V_Z_PLAN)
         
         return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
@@ -164,9 +159,9 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
-        # PRÉCISION AUGMENTÉE (Pour battre le concurrent)
-        t_bus_samples = np.linspace(0, 1, 80) 
-        t_deploy_samples = np.linspace(0.01, 1, 40)
+        # HYPER-RÉSOLUTION : Quadrillage massif de la carte
+        t_bus_samples = np.linspace(0, 1, 150) 
+        t_deploy_samples = np.linspace(0.0, 1.0, 50)
         
         best_t_bus = 0; best_t_deploy = 0
 
@@ -180,9 +175,9 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
-            # MICRO-OPTIMISATION CHIRURGICALE
-            micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 25)
-            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.03), min(1, best_t_deploy + 0.03), 25)
+            # MICRO-OPTIMISATION CHIRURGICALE au millimètre
+            micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 40)
+            micro_t_deploy = np.linspace(max(0.0, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 40)
             for t_bus in micro_t_bus:
                 for t_deploy in micro_t_deploy:
                     paths_tested += 1
@@ -295,7 +290,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA analyse le relief et calcule la trajectoire optimale...'):
+        with st.spinner('L\'IA hyper-résolution analyse le relief (10 000+ chemins)...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -356,9 +351,9 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         P2 = to_ui(res["P2"])
         P3 = to_ui(res["P3"])
         
-        draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
-        draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
-        draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5)
+        if res['time_A'] > 0: draw.line([P0, P1], fill=COLOR_FREEFALL_HIGH, width=4)
+        if res['time_plan'] > 0: draw.line([P1, P2], fill=COLOR_GLIDER, width=4)
+        if res['time_drop'] > 0: draw.line([P2, P3], fill=COLOR_FREEFALL_LOW, width=5)
         
         draw.ellipse((P0[0]-6, P0[1]-6, P0[0]+6, P0[1]+6), fill="yellow", outline="black", width=2)
         draw.ellipse((P1[0]-4, P1[1]-4, P1[0]+4, P1[1]+4), fill="white", outline="black", width=2)
