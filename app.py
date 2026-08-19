@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE + SCANNER RELIEF)
+# LE CERVEAU DE L'IA (SCANNER PHYSIQUE CORRIGÉ)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -71,30 +71,62 @@ class DropEngineIA:
         d_T = t_deploy * dist_J_S
         T = J + d_T * dir_vec
         
-        # Altitude d'ouverture du planeur
-        Z_T = self.get_elevation(T[0], T[1]) + 100.0
-        Z_open = Z_T
-        
         D_A = max(0.0, d_T)
-        dZ_A = H_BUS - Z_T
+        D_B = max(0.0, dist_J_S - d_T)
+        
+        # ========================================================
+        # 🏔️ 1. ALTITUDE DYNAMIQUE (Planeur)
+        # ========================================================
+        max_required_Z = self.get_elevation(T[0], T[1]) + 100.0
+        
+        if D_B > 0:
+            for step in np.linspace(0.1, 1.0, 10):
+                P_check = T + step * (S - T)
+                Z_ground = self.get_elevation(P_check[0], P_check[1])
+                required_Z = Z_ground + (step * D_B) * (V_Z_PLAN / V_H_PLAN)
+                if required_Z > max_required_Z:
+                    max_required_Z = required_Z
+                    
+        Z_open = max_required_Z
+        
+        if Z_open > H_BUS:
+            return float('inf'), None
+        
+        dZ_A = H_BUS - Z_open
         if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
             return float('inf'), None
+            
+        # ========================================================
+        # 🏔️ 2. SCANNER ANTI-CRASH CORRIGÉ (Chute Libre)
+        # ========================================================
+        if D_A > 0:
+            for step in np.linspace(0.1, 0.9, 5):
+                P_check = J + step * (T - J)
+                Z_ground = self.get_elevation(P_check[0], P_check[1])
+                
+                # CORRECTION : On suit la vraie courbe de vol ! 
+                # Le joueur reste très haut pendant son avancée horizontale, puis plonge à la fin.
+                Z_flight = H_BUS - (step * D_A) * (V_Z_GLIDE1 / V_H_GLIDE1)
+                
+                if Z_flight < Z_ground + 100.0:
+                    return float('inf'), None 
+        # ========================================================
         
         time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
         
-        D_B = max(0.0, dist_J_S - d_T)
         if t_deploy == 1.0:
             dZ_B = 100.0 
         else:
-            dZ_B = Z_T - self.get_elevation(S[0], S[1])
+            dZ_B = Z_open - self.get_elevation(S[0], S[1])
             
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
         # ========================================================
-        # LOGIQUE INCASSABLE (Résolution Physique Exacte)
+        # RÉSOLUTION PHYSIQUE EXACTE (Planeur + Plongée)
         # ========================================================
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
+        if det == 0: return float('inf'), None
         
         t_plan_exact = (D_B * V_Z_DROP - dZ_B * V_H_DROP) / det
         t_drop_exact = (dZ_B * V_H_PLAN - D_B * V_Z_PLAN) / det
@@ -113,39 +145,8 @@ class DropEngineIA:
             dist_drop = time_drop * V_H_DROP
             
         time_B = time_plan + time_drop
-        
-        # ========================================================
-        # 🏔️ SCANNER DE RELIEF (ANTI-CRASH)
-        # ========================================================
-        # 1. Vérification Phase Planeur (On scanne entre T et S)
-        for step in [0.25, 0.50, 0.75]:
-            P_check = T + step * (S - T)
-            Z_ground = self.get_elevation(P_check[0], P_check[1])
-            dist_check = step * D_B
-            
-            # Calcul de l'altitude du joueur à cet endroit précis
-            if dist_check <= dist_plan:
-                Z_flight = Z_open - (dist_check / V_H_PLAN) * V_Z_PLAN
-            else:
-                dist_drop_check = dist_check - dist_plan
-                Z_flight = Z_open - (time_plan * V_Z_PLAN) - (dist_drop_check / V_H_DROP) * V_Z_DROP
-                
-            # Si le joueur est sous terre, ce chemin est impossible
-            if Z_flight <= Z_ground:
-                return float('inf'), None
-
-        # 2. Vérification Phase Chute Libre (On scanne entre J et T)
-        for step in [0.33, 0.66]:
-            P_check = J + step * (T - J)
-            Z_ground = self.get_elevation(P_check[0], P_check[1])
-            Z_flight = H_BUS - step * (H_BUS - Z_open)
-            
-            # Si le joueur frôle un sommet à moins de 100m, le planeur s'ouvre de force ! Chemin invalide.
-            if Z_flight <= Z_ground + 100.0:
-                return float('inf'), None
-        # ========================================================
-        
         total_time = time_bus + time_A + time_B
+        
         Z_close = Z_open - (time_plan * V_Z_PLAN)
         
         return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
@@ -163,8 +164,9 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
-        t_bus_samples = np.linspace(0, 1, 60) 
-        t_deploy_samples = np.linspace(0.01, 1, 30)
+        # PRÉCISION AUGMENTÉE (Pour battre le concurrent)
+        t_bus_samples = np.linspace(0, 1, 80) 
+        t_deploy_samples = np.linspace(0.01, 1, 40)
         
         best_t_bus = 0; best_t_deploy = 0
 
@@ -178,8 +180,9 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
-            micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 20)
-            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 20)
+            # MICRO-OPTIMISATION CHIRURGICALE
+            micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 25)
+            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.03), min(1, best_t_deploy + 0.03), 25)
             for t_bus in micro_t_bus:
                 for t_deploy in micro_t_deploy:
                     paths_tested += 1
@@ -233,9 +236,6 @@ st.title("🪂 Baphte Drop Calculator")
 def load_images():
     img_map_original = Image.open("Map Chapitre7 s3.png")
     
-    # ==========================================
-    # AUTO-ÉTALONNAGE ROBUSTE DE LA HEIGHTMAP
-    # ==========================================
     img_height_raw = Image.open("heightmap_Chap7_S3.png")
     if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
         bg = Image.new('RGB', img_height_raw.size, (0, 0, 0))
@@ -253,7 +253,6 @@ def load_images():
         height_arr = (raw_arr - min_val) / (max_val - min_val) * Z_MAX
     else:
         height_arr = np.zeros_like(raw_arr)
-    # ==========================================
     
     ui_map = img_map_original.copy()
     ui_map.thumbnail((1000, 1000)) 
@@ -388,7 +387,7 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins.")
+            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
