@@ -17,14 +17,14 @@ H_BUS = 820.0
 Z_MAX = 300.0    
 
 V_BUS = 75.0       
-V_H_GLIDE1 = 35.0  
+V_H_GLIDE1 = 12.75  
 V_Z_GLIDE1 = 12.0  
 V_Z_DIVE1 = 60.0   
 
 V_H_PLAN = 18.5
 V_Z_PLAN = 10.0
 
-V_H_DROP = 18.5    
+V_H_DROP = 10.0    
 V_Z_DROP = 30.0    
 
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
