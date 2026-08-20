@@ -16,6 +16,7 @@ IMAGE_WIDTH_METERS = 2800.0
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
+# VALEURS MISES À JOUR SELON VOTRE DERNIÈRE CAPTURE :
 V_BUS = 75.0       
 V_H_GLIDE1 = 12.75  
 V_Z_GLIDE1 = 12.0  
@@ -37,7 +38,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE ELLIPTIQUE)
+# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE ELLIPTIQUE DYNAMIQUE)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -107,19 +108,25 @@ class DropEngineIA:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE
+        # 🚀 3. MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE (DYNAMIQUE)
         # ========================================================
-        # Calcule le temps parfait de vol diagonal sans aucune perte de vitesse
+        # Calcule le temps de vol diagonal en s'adaptant à VOS variables
         if D_A == 0:
             time_A = dZ_A / V_Z_DIVE1
             angle_deg = 90.0
         else:
             angle_deg = math.degrees(math.atan2(dZ_A, D_A))
             
-            # Résolution de l'équation d'ellipse de vitesse de Fortnite
-            A_quad = (2304.0 / 1225.0) * (D_A**2) + (dZ_A**2)
-            B_quad = -24.0 * dZ_A
-            C_quad = -2160.0
+            # Paramètres dynamiques de l'ellipse
+            H_g = V_H_GLIDE1
+            Z_min = V_Z_GLIDE1
+            Z_max = V_Z_DIVE1
+            dZ_g = Z_max - Z_min
+            
+            # Résolution algébrique de l'équation d'ellipse
+            A_quad = (dZ_g**2) * (D_A**2) + (H_g**2) * (dZ_A**2)
+            B_quad = -2.0 * (H_g**2) * Z_min * dZ_A
+            C_quad = (H_g**2) * (Z_min**2 - dZ_g**2)
             
             delta = B_quad**2 - 4 * A_quad * C_quad
             if delta >= 0:
