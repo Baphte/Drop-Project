@@ -10,13 +10,13 @@ from PIL import Image, ImageDraw
 st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
-# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
+# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES EXACTS
 # ==========================================
 IMAGE_WIDTH_METERS = 2800.0 
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
-# VALEURS MISES À JOUR SELON VOTRE DERNIÈRE CAPTURE :
+# Valeurs tirées de votre dernière capture d'écran
 V_BUS = 75.0       
 V_H_GLIDE1 = 12.75  
 V_Z_GLIDE1 = 12.0  
@@ -38,7 +38,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE ELLIPTIQUE DYNAMIQUE)
+# LE CERVEAU DE L'IA (MOTEUR VECTORIEL ELLIPTIQUE)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -108,31 +108,32 @@ class DropEngineIA:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE (DYNAMIQUE)
+        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA COURBE ELLIPTIQUE
+        # Intègre parfaitement la perte de Vz quand on augmente Vh
         # ========================================================
-        # Calcule le temps de vol diagonal en s'adaptant à VOS variables
         if D_A == 0:
             time_A = dZ_A / V_Z_DIVE1
             angle_deg = 90.0
         else:
-            angle_deg = math.degrees(math.atan2(dZ_A, D_A))
-            
-            # Paramètres dynamiques de l'ellipse
             H_g = V_H_GLIDE1
             Z_min = V_Z_GLIDE1
-            Z_max = V_Z_DIVE1
-            dZ_g = Z_max - Z_min
+            dZ_g = V_Z_DIVE1 - V_Z_GLIDE1
             
-            # Résolution algébrique de l'équation d'ellipse
-            A_quad = (dZ_g**2) * (D_A**2) + (H_g**2) * (dZ_A**2)
-            B_quad = -2.0 * (H_g**2) * Z_min * dZ_A
-            C_quad = (H_g**2) * (Z_min**2 - dZ_g**2)
+            # Équation d'ellipse de vitesse : (Vh/Hg)^2 + ((Vz - Zmin)/dZg)^2 = 1
+            # Résolution directe pour trouver le temps exact (t)
+            A_eq = (H_g**2) * (dZ_g**2 - Z_min**2)
+            B_eq = 2.0 * (H_g**2) * Z_min * dZ_A
+            C_eq = - ((D_A**2) * (dZ_g**2) + (H_g**2) * (dZ_A**2))
             
-            delta = B_quad**2 - 4 * A_quad * C_quad
+            delta = B_eq**2 - 4 * A_eq * C_eq
+            
             if delta >= 0:
-                u = (-B_quad + math.sqrt(delta)) / (2 * A_quad)
-                if u > 0:
-                    time_A = 1.0 / u
+                t_A = (-B_eq + math.sqrt(delta)) / (2 * A_eq)
+                if t_A > 0:
+                    time_A = t_A
+                    v_h = D_A / time_A
+                    v_z = dZ_A / time_A
+                    angle_deg = math.degrees(math.atan2(v_z, v_h))
                 else:
                     return float('inf'), None
             else:
@@ -318,7 +319,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la plongée vectorielle 3D...'):
+        with st.spinner('L\'IA calcule la trajectoire avec la vraie physique elliptique...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -414,7 +415,7 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
+            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins avec physique elliptique.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
