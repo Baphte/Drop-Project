@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
+st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -17,14 +17,14 @@ H_BUS = 820.0
 Z_MAX = 300.0    
 
 V_BUS = 75.0       
-V_H_GLIDE1 = 12.75  
+V_H_GLIDE1 = 35.0  
 V_Z_GLIDE1 = 12.0  
 V_Z_DIVE1 = 60.0   
 
 V_H_PLAN = 18.5
 V_Z_PLAN = 10.0
 
-V_H_DROP = 6.0    
+V_H_DROP = 18.5    
 V_Z_DROP = 30.0    
 
 R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (NOUVEAU MODÈLE VECTORIEL DIAGONAL)
+# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE ELLIPTIQUE)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -65,7 +65,7 @@ class DropEngineIA:
             if dZ_A <= 0: return float('inf'), None
             time_A = dZ_A / V_Z_DIVE1
             time_B = 100.0 / V_Z_DROP
-            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open, 0.0)
+            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open, 90.0)
         
         dir_vec = (S - J) / dist_J_S
         d_T = t_deploy * dist_J_S
@@ -91,40 +91,45 @@ class DropEngineIA:
             return float('inf'), None
         
         dZ_A = H_BUS - Z_open
-        if dZ_A <= 0: 
+        if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
             return float('inf'), None
             
         # ========================================================
-        # 🏔️ 2. SCANNER 3D RÉEL (CHUTE LIBRE DIAGONALE)
+        # 🏔️ 2. SCANNER 3D RÉEL (CHUTE LIBRE)
         # ========================================================
         if D_A > 0:
             for step in [0.3, 0.6, 0.9]:
                 P_check = J + step * (T - J)
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
-                Z_flight = H_BUS - step * dZ_A # L'IA descend en vraie ligne droite 3D
+                Z_flight = H_BUS - step * dZ_A
                 
                 if Z_flight < Z_ground + 100.0:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. NOUVEAU MODÈLE VECTORIEL DE PLONGÉE (LA CORRECTION)
+        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE
         # ========================================================
-        R_A = dZ_A / D_A if D_A > 0 else float('inf')
-        angle_deg = 0.0
-        
+        # Calcule le temps parfait de vol diagonal sans aucune perte de vitesse
         if D_A == 0:
             time_A = dZ_A / V_Z_DIVE1
+            angle_deg = 90.0
         else:
-            # Calcul Trigonométrique de l'angle parfait de plongée
-            tan_theta = (R_A * V_H_GLIDE1 - V_Z_GLIDE1) / V_Z_DIVE1
-            if tan_theta < 0: return float('inf'), None # L'angle est trop plat pour être physiquement possible
+            angle_deg = math.degrees(math.atan2(dZ_A, D_A))
             
-            cos_theta = 1.0 / math.sqrt(1.0 + tan_theta**2)
-            V_h_actual = V_H_GLIDE1 * cos_theta
-            time_A = D_A / V_h_actual
+            # Résolution de l'équation d'ellipse de vitesse de Fortnite
+            A_quad = (2304.0 / 1225.0) * (D_A**2) + (dZ_A**2)
+            B_quad = -24.0 * dZ_A
+            C_quad = -2160.0
             
-            # Calcul de l'angle d'affichage (0° = vertical pur, 90° = horizontal)
-            angle_deg = 90.0 - math.degrees(math.atan(tan_theta))
+            delta = B_quad**2 - 4 * A_quad * C_quad
+            if delta >= 0:
+                u = (-B_quad + math.sqrt(delta)) / (2 * A_quad)
+                if u > 0:
+                    time_A = 1.0 / u
+                else:
+                    return float('inf'), None
+            else:
+                return float('inf'), None
         # ========================================================
         
         if t_deploy == 1.0:
@@ -175,8 +180,8 @@ class DropEngineIA:
         paths_tested = 0
 
         # HYPER-RÉSOLUTION
-        t_bus_samples = np.linspace(0, 1, 80) 
-        t_deploy_samples = np.linspace(0.01, 1.0, 40)
+        t_bus_samples = np.linspace(0, 1, 100) 
+        t_deploy_samples = np.linspace(0.01, 1.0, 50)
         
         best_t_bus = 0; best_t_deploy = 0
 
@@ -191,8 +196,8 @@ class DropEngineIA:
 
         if best_time != float('inf'):
             # MICRO-OPTIMISATION CHIRURGICALE au millimètre
-            micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 30)
-            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 30)
+            micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 40)
+            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 40)
             for t_bus in micro_t_bus:
                 for t_deploy in micro_t_deploy:
                     paths_tested += 1
