@@ -16,7 +16,7 @@ IMAGE_WIDTH_METERS = 2800.0
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
-# VALEURS EXACTES :
+# VALEURS MISES À JOUR SELON VOTRE DERNIÈRE CAPTURE :
 V_BUS = 75.0       
 V_H_GLIDE1 = 12.75  
 V_Z_GLIDE1 = 12.0  
@@ -38,7 +38,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR INDÉPENDANT 100% FORTNITE)
+# LE CERVEAU DE L'IA (MOTEUR PHYSIQUE ELLIPTIQUE DYNAMIQUE)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -108,25 +108,35 @@ class DropEngineIA:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : ENVELOPPE RECTANGULAIRE
+        # 🚀 3. MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE (DYNAMIQUE)
         # ========================================================
-        # L'IA sait maintenant qu'elle peut tomber à 60 m/s ET avancer à 12.75 m/s EN MÊME TEMPS
-        time_A_vert = dZ_A / V_Z_DIVE1
-        time_A_horiz = D_A / V_H_GLIDE1 if V_H_GLIDE1 > 0 else float('inf')
-        
-        # Le temps de vol est dicté par l'axe le plus long à parcourir
-        time_A = max(time_A_vert, time_A_horiz)
-        
-        # Sécurité de plané maximal :
-        if time_A * V_Z_GLIDE1 > dZ_A:
-            return float('inf'), None
-            
-        if time_A == 0:
+        # Calcule le temps de vol diagonal en s'adaptant à VOS variables
+        if D_A == 0:
+            time_A = dZ_A / V_Z_DIVE1
             angle_deg = 90.0
         else:
-            V_h_actual = D_A / time_A
-            V_z_actual = dZ_A / time_A
-            angle_deg = math.degrees(math.atan2(V_z_actual, V_h_actual))
+            angle_deg = math.degrees(math.atan2(dZ_A, D_A))
+            
+            # Paramètres dynamiques de l'ellipse
+            H_g = V_H_GLIDE1
+            Z_min = V_Z_GLIDE1
+            Z_max = V_Z_DIVE1
+            dZ_g = Z_max - Z_min
+            
+            # Résolution algébrique de l'équation d'ellipse
+            A_quad = (dZ_g**2) * (D_A**2) + (H_g**2) * (dZ_A**2)
+            B_quad = -2.0 * (H_g**2) * Z_min * dZ_A
+            C_quad = (H_g**2) * (Z_min**2 - dZ_g**2)
+            
+            delta = B_quad**2 - 4 * A_quad * C_quad
+            if delta >= 0:
+                u = (-B_quad + math.sqrt(delta)) / (2 * A_quad)
+                if u > 0:
+                    time_A = 1.0 / u
+                else:
+                    return float('inf'), None
+            else:
+                return float('inf'), None
         # ========================================================
         
         if t_deploy == 1.0:
@@ -308,7 +318,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la plongée indépendante...'):
+        with st.spinner('L\'IA calcule la plongée vectorielle 3D...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
