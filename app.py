@@ -10,13 +10,13 @@ from PIL import Image, ImageDraw
 st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
-# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES EXACTS
+# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
 # ==========================================
 IMAGE_WIDTH_METERS = 2800.0 
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
-# Valeurs tirées de votre dernière capture d'écran
+# VALEURS EXACTES :
 V_BUS = 75.0       
 V_H_GLIDE1 = 12.75  
 V_Z_GLIDE1 = 12.0  
@@ -38,7 +38,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR VECTORIEL ELLIPTIQUE)
+# LE CERVEAU DE L'IA (MOTEUR INDÉPENDANT 100% FORTNITE)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -108,36 +108,25 @@ class DropEngineIA:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA COURBE ELLIPTIQUE
-        # Intègre parfaitement la perte de Vz quand on augmente Vh
+        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : ENVELOPPE RECTANGULAIRE
         # ========================================================
-        if D_A == 0:
-            time_A = dZ_A / V_Z_DIVE1
+        # L'IA sait maintenant qu'elle peut tomber à 60 m/s ET avancer à 12.75 m/s EN MÊME TEMPS
+        time_A_vert = dZ_A / V_Z_DIVE1
+        time_A_horiz = D_A / V_H_GLIDE1 if V_H_GLIDE1 > 0 else float('inf')
+        
+        # Le temps de vol est dicté par l'axe le plus long à parcourir
+        time_A = max(time_A_vert, time_A_horiz)
+        
+        # Sécurité de plané maximal :
+        if time_A * V_Z_GLIDE1 > dZ_A:
+            return float('inf'), None
+            
+        if time_A == 0:
             angle_deg = 90.0
         else:
-            H_g = V_H_GLIDE1
-            Z_min = V_Z_GLIDE1
-            dZ_g = V_Z_DIVE1 - V_Z_GLIDE1
-            
-            # Équation d'ellipse de vitesse : (Vh/Hg)^2 + ((Vz - Zmin)/dZg)^2 = 1
-            # Résolution directe pour trouver le temps exact (t)
-            A_eq = (H_g**2) * (dZ_g**2 - Z_min**2)
-            B_eq = 2.0 * (H_g**2) * Z_min * dZ_A
-            C_eq = - ((D_A**2) * (dZ_g**2) + (H_g**2) * (dZ_A**2))
-            
-            delta = B_eq**2 - 4 * A_eq * C_eq
-            
-            if delta >= 0:
-                t_A = (-B_eq + math.sqrt(delta)) / (2 * A_eq)
-                if t_A > 0:
-                    time_A = t_A
-                    v_h = D_A / time_A
-                    v_z = dZ_A / time_A
-                    angle_deg = math.degrees(math.atan2(v_z, v_h))
-                else:
-                    return float('inf'), None
-            else:
-                return float('inf'), None
+            V_h_actual = D_A / time_A
+            V_z_actual = dZ_A / time_A
+            angle_deg = math.degrees(math.atan2(V_z_actual, V_h_actual))
         # ========================================================
         
         if t_deploy == 1.0:
@@ -319,7 +308,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la trajectoire avec la vraie physique elliptique...'):
+        with st.spinner('L\'IA calcule la plongée indépendante...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -415,7 +404,7 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
             ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins avec physique elliptique.")
+            st.caption(f"🤖 L'IA a testé {res['paths_tested']:,} chemins.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
