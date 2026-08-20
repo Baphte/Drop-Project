@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
+st.set_page_config(page_title="Baphte Fortnite Dropping", layout="wide")
 
 # ==========================================
 # VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES
@@ -37,7 +37,7 @@ COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR HYPER-RÉSOLUTION)
+# LE CERVEAU DE L'IA (NOUVEAU MODÈLE VECTORIEL DIAGONAL)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -65,7 +65,7 @@ class DropEngineIA:
             if dZ_A <= 0: return float('inf'), None
             time_A = dZ_A / V_Z_DIVE1
             time_B = 100.0 / V_Z_DROP
-            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open)
+            return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open, 0.0)
         
         dir_vec = (S - J) / dist_J_S
         d_T = t_deploy * dist_J_S
@@ -80,7 +80,6 @@ class DropEngineIA:
         Z_open = self.get_elevation(T[0], T[1]) + 100.0
         
         if D_B > 0:
-            # L'IA calcule exactement de combien elle doit se surélever pour chaque colline survolée
             for step in [0.2, 0.4, 0.6, 0.8, 1.0]:
                 P_check = T + step * (S - T)
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
@@ -92,25 +91,41 @@ class DropEngineIA:
             return float('inf'), None
         
         dZ_A = H_BUS - Z_open
-        if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
+        if dZ_A <= 0: 
             return float('inf'), None
             
         # ========================================================
-        # 🏔️ 2. NOUVEAU SCANNER 3D RÉEL (CHUTE LIBRE)
+        # 🏔️ 2. SCANNER 3D RÉEL (CHUTE LIBRE DIAGONALE)
         # ========================================================
         if D_A > 0:
             for step in [0.3, 0.6, 0.9]:
                 P_check = J + step * (T - J)
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
-                # On suit la véritable trajectoire diagonale 3D du joueur !
-                Z_flight = H_BUS - step * dZ_A
+                Z_flight = H_BUS - step * dZ_A # L'IA descend en vraie ligne droite 3D
                 
-                # Si le joueur tape la zone de 100m, son planeur s'ouvre de force = chemin invalide.
                 if Z_flight < Z_ground + 100.0:
                     return float('inf'), None
+                    
         # ========================================================
+        # 🚀 3. NOUVEAU MODÈLE VECTORIEL DE PLONGÉE (LA CORRECTION)
+        # ========================================================
+        R_A = dZ_A / D_A if D_A > 0 else float('inf')
+        angle_deg = 0.0
         
-        time_A = (D_A / V_H_GLIDE1) + max(0, (dZ_A - D_A * (V_Z_GLIDE1 / V_H_GLIDE1)) / V_Z_DIVE1)
+        if D_A == 0:
+            time_A = dZ_A / V_Z_DIVE1
+        else:
+            # Calcul Trigonométrique de l'angle parfait de plongée
+            tan_theta = (R_A * V_H_GLIDE1 - V_Z_GLIDE1) / V_Z_DIVE1
+            if tan_theta < 0: return float('inf'), None # L'angle est trop plat pour être physiquement possible
+            
+            cos_theta = 1.0 / math.sqrt(1.0 + tan_theta**2)
+            V_h_actual = V_H_GLIDE1 * cos_theta
+            time_A = D_A / V_h_actual
+            
+            # Calcul de l'angle d'affichage (0° = vertical pur, 90° = horizontal)
+            angle_deg = 90.0 - math.degrees(math.atan(tan_theta))
+        # ========================================================
         
         if t_deploy == 1.0:
             dZ_B = 100.0 
@@ -120,7 +135,7 @@ class DropEngineIA:
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
-        # Résolution Physique Exacte
+        # Résolution Phase Planeur/Chute Finale
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         if det == 0: return float('inf'), None
         
@@ -144,7 +159,7 @@ class DropEngineIA:
         total_time = time_bus + time_A + time_B
         Z_close = Z_open - (time_plan * V_Z_PLAN)
         
-        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close)
+        return total_time, (J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close, angle_deg)
 
     def run_optimization(self, p_start, p_end, p_spawn):
         A = np.array([p_start[0] / self.img_w * self.map_width_m, p_start[1] / self.img_h * self.map_height_m])
@@ -159,9 +174,9 @@ class DropEngineIA:
         best_splits = None
         paths_tested = 0
 
-        # HYPER-RÉSOLUTION : Quadrillage massif de la carte
-        t_bus_samples = np.linspace(0, 1, 150) 
-        t_deploy_samples = np.linspace(0.0, 1.0, 50)
+        # HYPER-RÉSOLUTION
+        t_bus_samples = np.linspace(0, 1, 80) 
+        t_deploy_samples = np.linspace(0.01, 1.0, 40)
         
         best_t_bus = 0; best_t_deploy = 0
 
@@ -176,8 +191,8 @@ class DropEngineIA:
 
         if best_time != float('inf'):
             # MICRO-OPTIMISATION CHIRURGICALE au millimètre
-            micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 40)
-            micro_t_deploy = np.linspace(max(0.0, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 40)
+            micro_t_bus = np.linspace(max(0, best_t_bus - 0.05), min(1, best_t_bus + 0.05), 30)
+            micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 30)
             for t_bus in micro_t_bus:
                 for t_deploy in micro_t_deploy:
                     paths_tested += 1
@@ -188,7 +203,7 @@ class DropEngineIA:
 
         if best_time == float('inf'): return None
 
-        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close = best_splits
+        J, D_A, dist_plan, dist_drop, dir_vec, time_bus, time_A, time_plan, time_drop, Z_open, Z_close, angle_deg = best_splits
         
         def m_to_px(pt_m):
             return (pt_m[0] / self.map_width_m * self.img_w, pt_m[1] / self.map_height_m * self.img_h)
@@ -207,6 +222,7 @@ class DropEngineIA:
             "time_drop": time_drop,
             "deploy_alt": Z_open,
             "drop_alt": Z_close,
+            "angle": angle_deg,
             "paths_tested": paths_tested,
             "P0": P0_px, "P1": P1_px, "P2": P2_px, "P3": P3_px
         }
@@ -290,7 +306,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA hyper-résolution analyse le relief (10 000+ chemins)...'):
+        with st.spinner('L\'IA calcule la plongée vectorielle 3D...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -365,9 +381,13 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
         
         with col2:
             st.markdown("---")
-            st.metric("Temps Total Optimal", f"{res['time_total']:.2f} s")
-            st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
-            st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Temps Total", f"{res['time_total']:.2f} s")
+                st.metric("Temps en Bus", f"{res['time_bus']:.1f} s")
+            with col_b:
+                st.metric("Angle de Chute", f"{res['angle']:.1f}°")
+                st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
             st.info(f"""
             **⏱️ Altitudes & Changements de Mode :**
