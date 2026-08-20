@@ -18,7 +18,7 @@ Z_MAX = 300.0
 
 # Valeurs tirées de votre dernière capture d'écran
 V_BUS = 75.0       
-V_H_GLIDE1 = 32.0  
+V_H_GLIDE1 = 25.0  
 V_Z_GLIDE1 = 12.0  
 V_Z_DIVE1 = 60.0   
 
