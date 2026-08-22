@@ -258,9 +258,9 @@ st.title("🪂 Baphte Drop Calculator")
 
 @st.cache_resource
 def load_images():
-    img_map_original = Image.open("Map_Chap7_S4")
+    img_map_original = Image.open("Map_Chap7_S4.png")
     
-    img_height_raw = Image.open("Heightmap_Chap7_S4")
+    img_height_raw = Image.open("Heightmap_Chap7_S4.png")
     if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
         bg = Image.new('RGB', img_height_raw.size, (0, 0, 0))
         bg.paste(img_height_raw, (0, 0), img_height_raw.convert('RGBA'))
