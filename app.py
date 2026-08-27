@@ -16,11 +16,10 @@ IMAGE_WIDTH_METERS = 2800.0
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
-# Valeurs tirées de votre dernière capture d'écran
 V_BUS = 75.0       
-V_H_GLIDE1 = 25.0  
-V_Z_GLIDE1 = 12.0  
-V_Z_DIVE1 = 60.0   
+V_H_GLIDE1 = 12.0  # Vitesse HORIZONTALE maximale (Angle plat)
+V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale (Angle plat)
+V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon 90°)
 
 V_H_PLAN = 18.5
 V_Z_PLAN = 5.0
@@ -28,7 +27,8 @@ V_Z_PLAN = 5.0
 V_H_DROP = 10.0    
 V_Z_DROP = 30.0    
 
-R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
+# Ratios maximum de distance franchissable (Garde-fous physiques)
+R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1 # Vaut désormais 0.48 (Impossible d'aller plus loin)
 R_MAX_2 = V_H_PLAN / V_Z_PLAN
 
 # Couleurs pour le tracé final
@@ -92,6 +92,8 @@ class DropEngineIA:
             return float('inf'), None
         
         dZ_A = H_BUS - Z_open
+        
+        # SÉCURITÉ ABSOLUE : Si la distance voulue dépasse les lois physiques (ratio 0.48), on annule.
         if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
             return float('inf'), None
             
@@ -119,8 +121,6 @@ class DropEngineIA:
             Z_min = V_Z_GLIDE1
             dZ_g = V_Z_DIVE1 - V_Z_GLIDE1
             
-            # Équation d'ellipse de vitesse : (Vh/Hg)^2 + ((Vz - Zmin)/dZg)^2 = 1
-            # Résolution directe pour trouver le temps exact (t)
             A_eq = (H_g**2) * (dZ_g**2 - Z_min**2)
             B_eq = 2.0 * (H_g**2) * Z_min * dZ_A
             C_eq = - ((D_A**2) * (dZ_g**2) + (H_g**2) * (dZ_A**2))
