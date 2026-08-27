@@ -10,35 +10,39 @@ from PIL import Image, ImageDraw
 st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
-# VOS PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES EXACTS
+# ⚙️ PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES (VALIDÉS EN JEU)
 # ==========================================
 IMAGE_WIDTH_METERS = 2800.0 
 H_BUS = 820.0  
 Z_MAX = 300.0    
 
-V_BUS = 75.0       
-V_H_GLIDE1 = 12.0  # Vitesse HORIZONTALE maximale (Angle plat)
-V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale (Angle plat)
-V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon 90°)
+V_BUS = 75.0       # Vitesse réelle du bus déduite du chrono (35s pour traverser la map)
 
-V_H_PLAN = 18.5
-V_Z_PLAN = 5.0
+# 🪂 PARAMÈTRES DE CHUTE LIBRE (Modèle Elliptique)
+V_H_GLIDE1 = 22.0  # Vitesse HORIZONTALE maximale (Angle d'extension max)
+V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale associée
+V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon vertical à 90°)
 
+# 🟢 PARAMÈTRES PLANEUR
+V_H_PLAN = 18.5    # Vitesse horizontale en planant vers l'avant
+V_Z_PLAN = 5.0     # Vitesse de chute en planant vers l'avant
+
+# 🔴 PARAMÈTRES CHUTE FINALE (Spirale/Descente neutre)
 V_H_DROP = 10.0    
 V_Z_DROP = 30.0    
 
-# Ratios maximum de distance franchissable (Garde-fous physiques)
-R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1 # Vaut désormais 0.48 (Impossible d'aller plus loin)
-R_MAX_2 = V_H_PLAN / V_Z_PLAN
+# Ratios de garde-fous physiques (Déterminent quand l'IA DOIT ouvrir le planeur)
+R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1 
+R_MAX_2 = V_H_PLAN / V_Z_PLAN     
 
-# Couleurs pour le tracé final
+# Couleurs de l'interface
 COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
 COLOR_GLIDER = (0, 255, 0)            # Vert Lime
 COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# LE CERVEAU DE L'IA (MOTEUR VECTORIEL ELLIPTIQUE)
+# 🧠 LE CERVEAU DE L'IA (MOTEUR VECTORIEL)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -60,6 +64,8 @@ class DropEngineIA:
         time_bus = (t_bus * bus_length) / V_BUS
         
         dist_J_S = np.linalg.norm(S - J)
+        
+        # Cas exceptionnel : Saut parfaitement à la verticale
         if dist_J_S == 0: 
             Z_open = self.get_elevation(S[0], S[1]) + 100.0
             dZ_A = H_BUS - Z_open
@@ -93,7 +99,7 @@ class DropEngineIA:
         
         dZ_A = H_BUS - Z_open
         
-        # SÉCURITÉ ABSOLUE : Si la distance voulue dépasse les lois physiques (ratio 0.48), on annule.
+        # SÉCURITÉ : Annule le chemin si la distance dépasse les lois de la physique
         if dZ_A <= 0 or D_A > dZ_A * R_MAX_1: 
             return float('inf'), None
             
@@ -111,7 +117,6 @@ class DropEngineIA:
                     
         # ========================================================
         # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA COURBE ELLIPTIQUE
-        # Intègre parfaitement la perte de Vz quand on augmente Vh
         # ========================================================
         if D_A == 0:
             time_A = dZ_A / V_Z_DIVE1
@@ -138,8 +143,10 @@ class DropEngineIA:
                     return float('inf'), None
             else:
                 return float('inf'), None
+                
         # ========================================================
-        
+        # 🪂 4. PHASE FINALE PLANEUR & CHUTE DROP
+        # ========================================================
         if t_deploy == 1.0:
             dZ_B = 100.0 
         else:
@@ -148,7 +155,6 @@ class DropEngineIA:
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
-        # Résolution Phase Planeur/Chute Finale
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         if det == 0: return float('inf'), None
         
@@ -241,7 +247,7 @@ class DropEngineIA:
         }
 
 # ==========================================
-# INITIALISATION DES VARIABLES
+# INITIALISATION DES VARIABLES STREAMLIT
 # ==========================================
 if 'points' not in st.session_state: st.session_state.points = []
 if 'phase' not in st.session_state: st.session_state.phase = 1
@@ -289,7 +295,7 @@ def load_images():
 try:
     map_original, height_array, map_ui, scale_x, scale_y = load_images()
 except Exception as e:
-    st.error(f"Erreur de chargement. Vérifiez les fichiers sur GitHub ! Erreur : {e}")
+    st.error(f"Erreur de chargement. Vérifiez les fichiers ! Erreur : {e}")
     st.stop()
 
 col1, col2 = st.columns([3, 1])
@@ -319,7 +325,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la trajectoire avec la vraie physique elliptique...'):
+        with st.spinner('L\'IA scanne le relief et calcule la chute optimale...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -403,19 +409,19 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
                 st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
             st.info(f"""
-            **⏱️ Altitudes & Changements de Mode :**
+            **⏱️ Analyse de la Trajectoire :**
             
-            🚌 **Saut du Bus** (Altitude : 820 m)
+            🚌 **Saut du Bus** (Alt: 820 m)
             ⬇️ *Chute Libre pendant {res['time_A']:.1f} s*
             
-            🪂 **Ouverture Planeur** (Altitude : **{res['deploy_alt']:.0f} m**)
+            🪂 **Ouverture Planeur** (Alt: **{res['deploy_alt']:.0f} m**)
             ⬇️ *Planeur pendant {res['time_plan']:.1f} s*
             
-            🎯 **Chute Finale** (Altitude : **{res['drop_alt']:.0f} m**)
-            ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
+            🎯 **Chute Finale** (Alt: **{res['drop_alt']:.0f} m**)
+            ⬇️ *Descente cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins avec physique elliptique.")
+            st.caption(f"🤖 Opti. confirmée : {res['paths_tested']:,} chemins testés en direct.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
