@@ -7,42 +7,42 @@ from PIL import Image, ImageDraw
 # ==========================================
 # CONFIGURATION DE LA PAGE STREAMLIT
 # ==========================================
-st.set_page_config(page_title="Baphte Drop Calculator - Reload", layout="wide")
+st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 
 # ==========================================
-# ⚙️ PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES (RELOAD)
+# ⚙️ PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES (VALIDÉS EN JEU)
 # ==========================================
-IMAGE_WIDTH_METERS = 2647.0 
-H_BUS = 400.0  
+IMAGE_WIDTH_METERS = 2800.0 
+H_BUS = 820.0  
 Z_MAX = 300.0    
 
-V_BUS = 75.0       # Vitesse du bus validée en jeu
+V_BUS = 75.0       # Vitesse réelle du bus déduite du chrono (35s pour traverser la map)
 
-# 🪂 PARAMÈTRES DE CHUTE LIBRE (Modèle Elliptique Synchronisé avec le BR)
-V_H_GLIDE1 = 22.0  # Vitesse HORIZONTALE maximale 
-V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale 
-V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon 90°)
+# 🪂 PARAMÈTRES DE CHUTE LIBRE (Modèle Elliptique)
+V_H_GLIDE1 = 22.0  # Vitesse HORIZONTALE maximale (Angle d'extension max)
+V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale associée
+V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon vertical à 90°)
 
 # 🟢 PARAMÈTRES PLANEUR
-V_H_PLAN = 18.5
-V_Z_PLAN = 5.0
+V_H_PLAN = 18.5    # Vitesse horizontale en planant vers l'avant
+V_Z_PLAN = 5.0     # Vitesse de chute en planant vers l'avant
 
-# 🔴 PARAMÈTRES CHUTE FINALE
+# 🔴 PARAMÈTRES CHUTE FINALE (Spirale/Descente neutre)
 V_H_DROP = 10.0    
 V_Z_DROP = 30.0    
 
 # Ratios de garde-fous physiques (Déterminent quand l'IA DOIT ouvrir le planeur)
-R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1
-R_MAX_2 = V_H_PLAN / V_Z_PLAN
+R_MAX_1 = V_H_GLIDE1 / V_Z_GLIDE1 
+R_MAX_2 = V_H_PLAN / V_Z_PLAN     
 
-# Couleurs pour le tracé final
+# Couleurs de l'interface
 COLOR_FREEFALL_HIGH = (255, 255, 255) # Blanc
 COLOR_GLIDER = (0, 255, 0)            # Vert Lime
 COLOR_FREEFALL_LOW = (255, 0, 0)      # Rouge
 COLOR_BUS = (0, 0, 255)               # Bleu
 
 # ==========================================
-# 🧠 LE CERVEAU DE L'IA (MOTEUR ELLIPTIQUE DYNAMIQUE)
+# 🧠 LE CERVEAU DE L'IA (MOTEUR VECTORIEL)
 # ==========================================
 class DropEngineIA:
     def __init__(self, map_w, map_h, heightmap_array):
@@ -64,12 +64,14 @@ class DropEngineIA:
         time_bus = (t_bus * bus_length) / V_BUS
         
         dist_J_S = np.linalg.norm(S - J)
+        
+        # Cas exceptionnel : Saut parfaitement à la verticale
         if dist_J_S == 0: 
-            Z_open = self.get_elevation(S[0], S[1]) + 50.0
+            Z_open = self.get_elevation(S[0], S[1]) + 100.0
             dZ_A = H_BUS - Z_open
             if dZ_A <= 0: return float('inf'), None
             time_A = dZ_A / V_Z_DIVE1
-            time_B = 50.0 / V_Z_DROP
+            time_B = 100.0 / V_Z_DROP
             return time_bus + time_A + time_B, (J, 0, 0, 0, np.array([1, 0]), time_bus, time_A, 0.0, time_B, Z_open, Z_open, 90.0)
         
         dir_vec = (S - J) / dist_J_S
@@ -82,7 +84,7 @@ class DropEngineIA:
         # ========================================================
         # 🏔️ 1. ALTITUDE DYNAMIQUE ET SCANNER ANTI-CRASH (PLANEUR)
         # ========================================================
-        Z_open = self.get_elevation(T[0], T[1]) + 50.0 # 50m pour Reload
+        Z_open = self.get_elevation(T[0], T[1]) + 100.0
         
         if D_B > 0:
             for step in [0.2, 0.4, 0.6, 0.8, 1.0]:
@@ -110,12 +112,11 @@ class DropEngineIA:
                 Z_ground = self.get_elevation(P_check[0], P_check[1])
                 Z_flight = H_BUS - step * dZ_A
                 
-                # Le planeur s'ouvre de force si on passe sous la barre des 50m
-                if Z_flight < Z_ground + 50.0:
+                if Z_flight < Z_ground + 100.0:
                     return float('inf'), None
                     
         # ========================================================
-        # 🚀 3. MODÈLE PHYSIQUE : LA PLONGÉE ELLIPTIQUE DYNAMIQUE
+        # 🚀 3. NOUVEAU MODÈLE PHYSIQUE : LA COURBE ELLIPTIQUE
         # ========================================================
         if D_A == 0:
             time_A = dZ_A / V_Z_DIVE1
@@ -130,6 +131,7 @@ class DropEngineIA:
             C_eq = - ((D_A**2) * (dZ_g**2) + (H_g**2) * (dZ_A**2))
             
             delta = B_eq**2 - 4 * A_eq * C_eq
+            
             if delta >= 0:
                 t_A = (-B_eq + math.sqrt(delta)) / (2 * A_eq)
                 if t_A > 0:
@@ -141,17 +143,18 @@ class DropEngineIA:
                     return float('inf'), None
             else:
                 return float('inf'), None
+                
         # ========================================================
-        
+        # 🪂 4. PHASE FINALE PLANEUR & CHUTE DROP
+        # ========================================================
         if t_deploy == 1.0:
-            dZ_B = 50.0 
+            dZ_B = 100.0 
         else:
             dZ_B = Z_open - self.get_elevation(S[0], S[1])
             
         if dZ_B <= 0 or D_B > dZ_B * R_MAX_2: 
             return float('inf'), None
             
-        # Résolution Phase Planeur/Chute Finale
         det = V_H_PLAN * V_Z_DROP - V_H_DROP * V_Z_PLAN
         if det == 0: return float('inf'), None
         
@@ -206,7 +209,7 @@ class DropEngineIA:
                     best_t_bus = t_bus; best_t_deploy = t_deploy
 
         if best_time != float('inf'):
-            # MICRO-OPTIMISATION
+            # MICRO-OPTIMISATION CHIRURGICALE au millimètre
             micro_t_bus = np.linspace(max(0, best_t_bus - 0.03), min(1, best_t_bus + 0.03), 40)
             micro_t_deploy = np.linspace(max(0.01, best_t_deploy - 0.05), min(1, best_t_deploy + 0.05), 40)
             for t_bus in micro_t_bus:
@@ -257,17 +260,13 @@ def reset_all():
     if 'result' in st.session_state:
         del st.session_state.result
 
-st.title("🪂 Baphte Drop Calculator - RELOAD")
+st.title("🪂 Baphte Drop Calculator")
 
 @st.cache_resource
 def load_images():
-    # Images pour le mode RELOAD
-    img_map_original = Image.open("Map_Reload_Elite_Stronghold.png")
+    img_map_original = Image.open("Map_Chap7_S4.png")
     
-    # ==========================================
-    # AUTO-ÉTALONNAGE ROBUSTE DE LA HEIGHTMAP (Correction transparence)
-    # ==========================================
-    img_height_raw = Image.open("Heightmap_Reload_Elite_Stronghold.png")
+    img_height_raw = Image.open("Heightmap_Chap7_S4.png")
     if img_height_raw.mode in ('RGBA', 'LA') or (img_height_raw.mode == 'P' and 'transparency' in img_height_raw.info):
         bg = Image.new('RGB', img_height_raw.size, (0, 0, 0))
         bg.paste(img_height_raw, (0, 0), img_height_raw.convert('RGBA'))
@@ -284,7 +283,6 @@ def load_images():
         height_arr = (raw_arr - min_val) / (max_val - min_val) * Z_MAX
     else:
         height_arr = np.zeros_like(raw_arr)
-    # ==========================================
     
     ui_map = img_map_original.copy()
     ui_map.thumbnail((1000, 1000)) 
@@ -297,7 +295,7 @@ def load_images():
 try:
     map_original, height_array, map_ui, scale_x, scale_y = load_images()
 except Exception as e:
-    st.error(f"Erreur de chargement. Vérifiez les fichiers sur GitHub ! Erreur : {e}")
+    st.error(f"Erreur de chargement. Vérifiez les fichiers ! Erreur : {e}")
     st.stop()
 
 col1, col2 = st.columns([3, 1])
@@ -327,7 +325,7 @@ with col2:
 # ==========================================
 if st.session_state.phase == 3:
     with col1:
-        with st.spinner('L\'IA calcule la plongée elliptique (Mode Reload)...'):
+        with st.spinner('L\'IA scanne le relief et calcule la chute optimale...'):
             engine = DropEngineIA(map_original.width, map_original.height, height_array)
             
             p_start_real = st.session_state.points[0]
@@ -381,7 +379,7 @@ if len(st.session_state.points) >= 3:
 if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
     res = st.session_state.result
     if res is None:
-        st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin ou bloqué par un obstacle).")
+        st.error("⚠️ Spawn inatteignable depuis ce bus (trop loin ou bloqué par une montagne).")
     else:
         P0 = to_ui(res["P0"])
         P1 = to_ui(res["P1"])
@@ -411,19 +409,19 @@ if st.session_state.phase == 4 and hasattr(st.session_state, 'result'):
                 st.metric("Temps en Vol", f"{res['time_air']:.1f} s")
             
             st.info(f"""
-            **⏱️ Altitudes & Changements de Mode :**
+            **⏱️ Analyse de la Trajectoire :**
             
-            🚌 **Saut du Bus** (Altitude : 400 m)
+            🚌 **Saut du Bus** (Alt: 820 m)
             ⬇️ *Chute Libre pendant {res['time_A']:.1f} s*
             
-            🪂 **Ouverture Planeur** (Altitude : **{res['deploy_alt']:.0f} m**)
+            🪂 **Ouverture Planeur** (Alt: **{res['deploy_alt']:.0f} m**)
             ⬇️ *Planeur pendant {res['time_plan']:.1f} s*
             
-            🎯 **Chute Finale** (Altitude : **{res['drop_alt']:.0f} m**)
-            ⬇️ *Chute vers la cible pendant {res['time_drop']:.1f} s*
+            🎯 **Chute Finale** (Alt: **{res['drop_alt']:.0f} m**)
+            ⬇️ *Descente cible pendant {res['time_drop']:.1f} s*
             """)
             
-            st.caption(f"🤖 L'IA a testé et vérifié {res['paths_tested']:,} chemins.")
+            st.caption(f"🤖 Opti. confirmée : {res['paths_tested']:,} chemins testés en direct.")
 
 with col1:
     value = streamlit_image_coordinates(img_draw, key=f"map_{st.session_state.map_key}")
