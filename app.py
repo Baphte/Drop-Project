@@ -13,7 +13,7 @@ st.set_page_config(page_title="Baphte Drop Calculator", layout="wide")
 # ⚙️ PARAMÈTRES TOPOGRAPHIQUES ET PHYSIQUES (VALIDÉS EN JEU)
 # ==========================================
 IMAGE_WIDTH_METERS = 2800.0 
-H_BUS = 820.0  
+H_BUS = 800.0  
 Z_MAX = 300.0    
 
 V_BUS = 75.0       # Vitesse réelle du bus déduite du chrono (35s pour traverser la map)
