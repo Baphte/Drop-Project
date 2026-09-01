@@ -20,7 +20,7 @@ V_BUS = 75.0       # Vitesse réelle du bus déduite du chrono (35s pour travers
 
 # 🪂 PARAMÈTRES DE CHUTE LIBRE (Modèle Elliptique)
 V_H_GLIDE1 = 22.0  # Vitesse HORIZONTALE maximale (Angle d'extension max)
-V_Z_GLIDE1 = 25.0  # Vitesse VERTICALE minimale associée
+V_Z_GLIDE1 = 30.0  # Vitesse VERTICALE minimale associée
 V_Z_DIVE1 = 60.0   # Vitesse VERTICALE maximale (Plongeon vertical à 90°)
 
 # 🟢 PARAMÈTRES PLANEUR
